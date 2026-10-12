@@ -110,10 +110,38 @@ class OpenCodeClientBehaviorTest {
         assertTrue(agents.stream().noneMatch(agent -> "Shadow Build".equals(agent.name())));
     }
 
+    @Test
+    void recordServerPortNeverAppendsFlags() throws Exception {
+        // OpenCode 2's acp command exits on unknown flags, so the plugin must not
+        // inject --port itself; pinned here so the feature can't regress the launch.
+        OpenCodeClient client = new OpenCodeClient(mock(Project.class));
+        List<String> cmd = new java.util.ArrayList<>(List.of("opencode", "acp"));
+
+        invokeRecordServerPort(client, cmd);
+
+        assertEquals(List.of("opencode", "acp"), cmd);
+    }
+
+    @Test
+    void recordServerPortKeepsExplicitUserPort() throws Exception {
+        OpenCodeClient client = new OpenCodeClient(mock(Project.class));
+        List<String> cmd = new java.util.ArrayList<>(List.of("opencode", "acp", "--port", "4096"));
+
+        invokeRecordServerPort(client, cmd);
+
+        assertEquals(List.of("opencode", "acp", "--port", "4096"), cmd);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, String> invokeBuildEnvironment(OpenCodeClient client) throws Exception {
         Method method = OpenCodeClient.class.getDeclaredMethod("buildEnvironment", int.class, String.class);
         method.setAccessible(true);
         return (Map<String, String>) method.invoke(client, 8123, tempDir.toString());
+    }
+
+    private static void invokeRecordServerPort(OpenCodeClient client, List<String> cmd) throws Exception {
+        Method method = OpenCodeClient.class.getDeclaredMethod("recordServerPort", List.class);
+        method.setAccessible(true);
+        method.invoke(client, cmd);
     }
 }
