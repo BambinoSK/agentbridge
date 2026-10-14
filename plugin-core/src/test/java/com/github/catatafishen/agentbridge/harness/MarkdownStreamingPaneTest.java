@@ -35,6 +35,23 @@ public class MarkdownStreamingPaneTest extends BasePlatformTestCase {
     private NativeMarkdownPane pane;
 
     @Override
+    protected void tearDown() throws Exception {
+        try {
+            // Same Windows teardown race as AcpScenarioE2ETest: a project service
+            // may hold the conversation DB open; close it BEFORE the framework
+            // deletes the temp project dir ("being used by another process").
+            try {
+                com.github.catatafishen.agentbridge.session.db.ConversationDatabase
+                    .getInstance(getProject()).dispose();
+            } catch (Exception ignored) {
+            }
+            Thread.sleep(100);
+        } finally {
+            super.tearDown();
+        }
+    }
+
+    @Override
     protected void setUp() throws Exception {
         super.setUp();
         pane = new NativeMarkdownPane(new FileNavigator(getProject()));
