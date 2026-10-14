@@ -93,7 +93,10 @@ class MarkdownOrderedListTest {
     void inlineFormattingSurvivesInsideOrderedItems() {
         String html = render("1. item with `code` and **bold**");
         assertTrue(html.contains("<li>"), "expected a list item, got: " + html);
-        assertTrue(html.contains("<code>code</code>"), "inline code must survive, got: " + html);
+        // The renderer pads inline code with narrow no-break spaces (&#8239;)
+        // on both sides — same as unordered items — so match the real format.
+        assertTrue(html.contains("<code>&#8239;code&#8239;</code>"),
+            "inline code must survive, got: " + html);
         assertTrue(html.contains("<b>bold</b>"), "inline bold must survive, got: " + html);
     }
 }

@@ -87,25 +87,32 @@ public class MarkdownStreamingPaneTest extends BasePlatformTestCase {
         List<Element> items = elementsNamed(pane.getDocument().getDefaultRootElement(), "li");
         assertEquals(3, items.size());
 
-        // Force layout at the pane width, then measure row x positions.
+        // Force layout at the pane width, then measure row left-edge x positions.
         View root = pane.getUI().getRootView(pane);
         root.setSize((float) PANE_WIDTH, Short.MAX_VALUE);
         int paragraphX = xOfOffset(root, 1); // "Para before the list." starts here
 
         for (Element li : items) {
-            int startX = li.getStartOffset();
-            int itemX = xOfOffset(root, startX + 1);
+            // x of the item's first text character = left edge of the item text
+            // (the numeral is painted by Swing in the padding-left marker band).
+            int itemX = xOfOffset(root, li.getStartOffset());
             assertTrue("list item text must sit in a marker gutter right of paragraph text (x="
                     + itemX + " vs " + paragraphX + ")",
                 itemX >= paragraphX + 15);
-            // Wrapped continuation rows must align under the item text (hanging indent):
-            // the x of any offset inside the item body equals the x of the item start.
-            int mid = (startX + li.getEndOffset()) / 2;
-            int midX = xOfOffset(root, mid);
-            int lastX = xOfOffset(root, li.getEndOffset() - 2);
-            assertTrue("continuation lines must keep the hanging indent (x=" + midX + "/"
-                    + lastX + " vs " + itemX + ")",
-                Math.abs(midX - itemX) <= 2 && Math.abs(lastX - itemX) <= 2);
+            // Hanging indent: the LEFT EDGE of any wrapped continuation row must
+            // equal the item text's left edge. (xOfOffset of an arbitrary mid-row
+            // character would just be that character's position, not the edge.)
+            int mid = (li.getStartOffset() + li.getEndOffset()) / 2;
+            if (mid > li.getStartOffset()) {
+                int midRowStart = javax.swing.text.Utilities.getRowStart(pane, mid);
+                int midX = xOfOffset(root, midRowStart);
+                assertTrue("continuation lines must keep the hanging indent (x=" + midX
+                    + " vs " + itemX + ")", Math.abs(midX - itemX) <= 2);
+            }
+            int lastRowStart = javax.swing.text.Utilities.getRowStart(pane, li.getEndOffset() - 2);
+            int lastX = xOfOffset(root, lastRowStart);
+            assertTrue("last row must keep the hanging indent (x=" + lastX + " vs " + itemX + ")",
+                Math.abs(lastX - itemX) <= 2);
         }
     }
 
