@@ -1,0 +1,19 @@
+{
+  "card": 110,
+  "description": "Replays a real assistant reply (bold numbered items, table, fenced code block, quick-reply footer) as streamed agent_message_chunk notifications with adversarial chunk boundaries. Guards the streaming pipeline's byte-transparency and feeds the markdown renderer the exact class of text that rendered broken in the field (flush-left numbered items, no list structure).",
+  "agentInfo": { "name": "harness-fake-agent", "version": "0.1" },
+  "sessionNewResult": { "sessionId": "ses_harness_card110" },
+  "setConfigOption": {},
+  "replayText": {
+    "textFile": "card110-numbered-reply.md",
+    "chunking": {
+      "seed": 110,
+      "forcedSplits": ["null,", "so", "repo.", "3.", "mismatch.", "OpenCode's"],
+      "newlineSplitProbability": 0.5,
+      "midTokenSplitEvery": 25
+    }
+  },
+  "promptScript": [
+    { "type": "result", "result": { "stopReason": "end_turn" } }
+  ]
+}

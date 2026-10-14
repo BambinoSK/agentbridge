@@ -1,0 +1,83 @@
+{
+  "card": 109,
+  "description": "Replays a run_command tool call the way real agents report it: a pending tool_call update with raw JSON arguments, then a completed update whose result is the raw RunCommandTool result string ('Command succeeded [bash]' / exit-code failure shapes). These payloads are what the tool-call popup and web tool-calls panel must render as a formatted status card, not a raw dump.",
+  "agentInfo": { "name": "harness-fake-agent", "version": "0.1" },
+  "sessionNewResult": { "sessionId": "ses_harness_card109" },
+  "setConfigOption": {},
+  "promptScript": [
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tc-harness-1",
+          "title": "run_command",
+          "kind": "execute",
+          "arguments": { "command": "./gradlew :plugin-core:compileKotlin --quiet", "timeout": 300 }
+        }
+      }
+    },
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tc-harness-1",
+          "status": "in_progress"
+        }
+      }
+    },
+    { "type": "sleep", "ms": 50 },
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tc-harness-1",
+          "status": "completed",
+          "result": "Command succeeded [bash]\ncompileKotlin UP-TO-DATE\n\nBUILD SUCCESSFUL in 2s"
+        }
+      }
+    },
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tc-harness-2",
+          "title": "run_command",
+          "kind": "execute",
+          "arguments": { "command": "npm run build" }
+        }
+      }
+    },
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tc-harness-2",
+          "status": "in_progress"
+        }
+      }
+    },
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tc-harness-2",
+          "status": "completed",
+          "result": "Command failed (exit code 1) [bash]\nerror TS2304: Cannot find name 'foo'"
+        }
+      }
+    },
+    { "type": "result", "result": { "stopReason": "end_turn" } }
+  ]
+}

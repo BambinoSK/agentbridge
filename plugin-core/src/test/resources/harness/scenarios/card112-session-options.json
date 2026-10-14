@@ -1,0 +1,115 @@
+{
+  "card": 112,
+  "description": "Replays the real session/new configOptions wire shape recorded from OpenCode v2.0.27 (model/effort/mode select options), the real session/set_config_option echo behavior, the real cross-effect where switching model resets effort, the real -32602 for unknown option ids, and the config_options_changed session/update notification. Sanitized: model provider ids replaced with generic ones.",
+  "agentInfo": { "name": "harness-fake-agent", "version": "0.1" },
+  "sessionNewResult": {
+    "sessionId": "ses_harness_card112",
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "provider/glm-5.3",
+        "options": [
+          { "value": "provider/claude-sonnet-5-5", "name": "provider/Claude Sonnet 5.5" },
+          { "value": "provider/deepseek-v4.1-flash", "name": "provider/Deepseek v4.1 Flash" },
+          { "value": "provider/glm-5.3", "name": "provider/GLM 5.3" },
+          { "value": "provider/glm-5.3-flash", "name": "provider/GLM 5.3 Flash" }
+        ]
+      },
+      {
+        "id": "effort",
+        "name": "Effort",
+        "description": "Available effort levels for this model",
+        "category": "thought_level",
+        "type": "select",
+        "currentValue": "default",
+        "options": [
+          { "value": "low", "name": "Low" },
+          { "value": "medium", "name": "Medium" },
+          { "value": "high", "name": "High" },
+          { "value": "default", "name": "Default" }
+        ]
+      },
+      {
+        "id": "mode",
+        "name": "Session Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "build",
+        "options": [
+          { "value": "build", "name": "Build", "description": "The default agent. Executes tools based on configured permissions." },
+          { "value": "plan", "name": "Plan", "description": "Read-only agent for exploring the codebase and planning work before implementation." }
+        ]
+      }
+    ]
+  },
+  "setConfigOption": {
+    "effort": { "effects": [] },
+    "model": {
+      "effects": [
+        { "id": "effort", "currentValue": "default" }
+      ]
+    },
+    "mode": { "effects": [] },
+    "agent": {
+      "error": {
+        "code": -32602,
+        "message": "Invalid params: unknown config option: agent"
+      }
+    }
+  },
+  "promptScript": [
+    {
+      "type": "update",
+      "params": {
+        "sessionId": "$SESSION",
+        "update": {
+          "sessionUpdate": "config_option_update",
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "provider/claude-sonnet-5-5",
+              "options": [
+                { "value": "provider/claude-sonnet-5-5", "name": "provider/Claude Sonnet 5.5" },
+                { "value": "provider/deepseek-v4.1-flash", "name": "provider/Deepseek v4.1 Flash" },
+                { "value": "provider/glm-5.3", "name": "provider/GLM 5.3" },
+                { "value": "provider/glm-5.3-flash", "name": "provider/GLM 5.3 Flash" }
+              ]
+            },
+            {
+              "id": "effort",
+              "name": "Effort",
+              "description": "Available effort levels for this model",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                { "value": "low", "name": "Low" },
+                { "value": "medium", "name": "Medium" },
+                { "value": "high", "name": "High" },
+                { "value": "default", "name": "Default" }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Session Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "build",
+              "options": [
+                { "value": "build", "name": "Build", "description": "The default agent. Executes tools based on configured permissions." },
+                { "value": "plan", "name": "Plan", "description": "Read-only agent for exploring the codebase and planning work before implementation." }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    { "type": "result", "result": { "stopReason": "end_turn" } }
+  ]
+}
