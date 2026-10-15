@@ -2219,7 +2219,23 @@ class ChatToolWindowContent(
                 }
 
                 override fun actionPerformed(e: AnActionEvent) {
-                    if (agent.slug() != currentSlug) restartWithNewAgent(agent.slug())
+                    if (agent.slug() != currentSlug) {
+                        // Agents that can apply the switch to the live session (e.g. OpenCode v2
+                        // via the mode config option) do so without a process restart; the
+                        // selection is persisted so future sessions start with it too.
+                        val liveSwitch = try {
+                            agentManager.client.canSwitchAgentLive(agent.slug())
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (liveSwitch) {
+                            agentManager.settings.setSelectedAgent(agent.slug())
+                            agentManager.client.setCurrentAgentSlug(agent.slug())
+                            statusBanner?.showInfo("Switched to ${agent.name()}")
+                        } else {
+                            restartWithNewAgent(agent.slug())
+                        }
+                    }
                 }
             })
         }
@@ -2292,7 +2308,12 @@ class ChatToolWindowContent(
         for (option in options) {
             group.addSeparator(option.displayName)
             val stored = agentManager.settings.getSessionOptionValue(option.key)
-            val current = stored.ifEmpty { option.initialValue ?: "" }
+            // Prefer the agent-reported live value over the stored pick: the
+            // set_config_option echo (the only state channel on OpenCode v2)
+            // carries cross-effects such as effort resetting to the model
+            // default after a model switch — the stored pick would keep
+            // tick-marking the stale pre-switch value.
+            val current = option.effectiveValue(stored)
             for (value in option.values) {
                 group.add(createSessionOptionValueAction(option, value, current))
             }

@@ -1450,7 +1450,46 @@ public abstract class AcpClient extends AbstractClient {
         params.addProperty(KEY_SESSION_ID, sessionId);
         params.addProperty("configId", configId);
         params.addProperty("value", valueId);
-        transport.sendRequest("session/set_config_option", params);
+        CompletableFuture<JsonElement> future = transport.sendRequest("session/set_config_option", params);
+        // Some agents (notably OpenCode v2) do NOT push a config_option_update
+        // notification after a change; instead they echo the updated option
+        // state (full configOptions array, including cross-effects such as
+        // effort resetting on a model switch) in the response. Apply that echo
+        // so the local option state never goes stale — otherwise the session
+        // options menu keeps showing the pre-change selection until the next
+        // session/new. Rejected options (JSON-RPC error, e.g. -32602) complete
+        // the future exceptionally and are skipped, leaving state untouched.
+        future.whenComplete(this::applyConfigOptionEcho);
+    }
+
+    /**
+     * Applies the {@code configOptions} array echoed in a successful
+     * {@code session/set_config_option} response to the local option state.
+     * Shared by {@link #setConfigOption} and by subclasses that send their own
+     * config-option requests (e.g. OpenCode v2 routes model changes through
+     * {@code session/set_config_option} via {@link #sendSetModel}) so no
+     * config-changing path misses the echo. Null/exceptional results are
+     * ignored; parse failures are logged and leave state untouched.
+     */
+    protected final void applyConfigOptionEcho(JsonElement result, Throwable err) {
+        if (err != null || result == null || !result.isJsonObject()) return;
+        try {
+            JsonObject res = result.getAsJsonObject();
+            if (!res.has("configOptions") || !res.get("configOptions").isJsonArray()) return;
+            List<NewSessionResponse.SessionConfigOption> parsed = new ArrayList<>();
+            for (JsonElement e : res.getAsJsonArray("configOptions")) {
+                if (e.isJsonObject()) {
+                    NewSessionResponse.SessionConfigOption opt =
+                        messageParser.parseConfigOption(e.getAsJsonObject());
+                    if (opt != null) parsed.add(opt);
+                }
+            }
+            if (!parsed.isEmpty()) {
+                updateConfigOptionsFromNotification(parsed);
+            }
+        } catch (Exception e) {
+            LOG.warn(displayName() + ": failed to apply set_config_option echo", e);
+        }
     }
 
     @Override

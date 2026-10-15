@@ -48,6 +48,25 @@ public record SessionOption(
     }
 
     /**
+     * Returns the value the session options menu should tick-mark: the
+     * agent-reported live value when the agent has one, otherwise the
+     * locally stored pick.
+     *
+     * <p>Agents that echo option state (OpenCode v2's
+     * {@code session/set_config_option} response is the only state channel —
+     * it pushes no {@code config_option_update} notifications) can change an
+     * option's current value out from under a stored pick, e.g. effort
+     * resetting to the model default after a model switch. Preferring the
+     * live value keeps the checkmark truthful; the stored pick remains the
+     * fallback before the agent has reported anything.</p>
+     */
+    @NotNull
+    public String effectiveValue(@Nullable String stored) {
+        if (initialValue != null && !initialValue.isEmpty()) return initialValue;
+        return stored != null ? stored : "";
+    }
+
+    /**
      * Returns the label shown in the dropdown for a given raw value.
      * Empty string maps to "Default"; non-empty values use the {@link #labels} map if present,
      * otherwise fall back to title-casing the value.

@@ -2,6 +2,7 @@ package com.github.catatafishen.agentbridge.client.acp;
 
 import com.github.catatafishen.agentbridge.bridge.EntryData;
 import com.github.catatafishen.agentbridge.client.AbstractClient;
+import com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcTransport;
 import com.github.catatafishen.agentbridge.services.AgentProfile;
 import com.github.catatafishen.agentbridge.services.AgentProfileManager;
 import com.github.catatafishen.agentbridge.settings.ShellEnvironment;
@@ -74,6 +75,15 @@ public final class OpenCodeClient extends AcpClient {
         super(project);
     }
 
+    /**
+     * Test constructor allowing transport injection, mirroring
+     * {@link AcpClient#AcpClient(Project, JsonRpcTransport)}. Package-private:
+     * production code must use {@link #OpenCodeClient(Project)}.
+     */
+    OpenCodeClient(Project project, JsonRpcTransport transport) {
+        super(project, transport);
+    }
+
     @Override
     public String agentId() {
         return AGENT_ID;
@@ -92,6 +102,75 @@ public final class OpenCodeClient extends AcpClient {
     @Override
     public boolean supportsModelGrouping() {
         return true;
+    }
+
+    /**
+     * OpenCode v2 exposes its session modes ({@code build}, {@code plan}) as the {@code mode}
+     * config option, and a mode switch applies to the live session via
+     * {@code session/set_config_option(configId=mode)} (verified against v2.0.27: the agent's
+     * self-reported mode changes in-session). Verified NOT switchable: v2 rejects
+     * {@code general}/{@code explore} with {@code -32602 mode not found} (they are Task-tool
+     * subagents, not primary modes), and v1 has no config-option channel, so both keep the
+     * process-restart flow.
+     */
+    @Override
+    public boolean canSwitchAgentLive(@Nullable String slug) {
+        return isOpenCodeV2OrLater() && isSelectableOpenCodeMode(slug);
+    }
+
+    /**
+     * Whether {@code slug} is one of the mode values OpenCode advertised in its {@code mode}
+     * config option (kept fresh by the set_config_option echo). Only advertised values are
+     * valid arguments to a mode switch.
+     */
+    private boolean isSelectableOpenCodeMode(@Nullable String slug) {
+        if (slug == null || slug.isBlank()) {
+            return false;
+        }
+        return getAvailableConfigOptions().stream()
+            .filter(o -> "mode".equals(o.id()))
+            .flatMap(o -> o.values().stream())
+            .anyMatch(v -> slug.equals(v.id()));
+    }
+
+    /**
+     * Pushes an agent selection made while a session is live to OpenCode v2 via the {@code mode}
+     * config option (the echo application keeps local option state in sync). No-op on v1 or when
+     * there is no active session (the selection is then applied by {@link #onSessionCreated}).
+     */
+    @Override
+    protected void onAgentSlugChanged(@Nullable String slug) {
+        if (!canSwitchAgentLive(slug)) {
+            return;
+        }
+        String sessionId = getCurrentSessionId();
+        if (sessionId != null && !sessionId.isBlank()) {
+            setConfigOption(sessionId, "mode", slug);
+        }
+    }
+
+    /**
+     * Applies an agent selection stored before the session existed (the process-restart flow
+     * persists it, and {@code ActiveAgentManager} re-applies it on start). Sends the stored slug
+     * as the session mode when it differs from the mode the session already runs.
+     */
+    @Override
+    protected void onSessionCreated(String sessionId) {
+        if (!isOpenCodeV2OrLater()) {
+            return;
+        }
+        String slug = getCurrentAgentSlug();
+        if (!isSelectableOpenCodeMode(slug)) {
+            return;
+        }
+        String currentMode = getAvailableConfigOptions().stream()
+            .filter(o -> "mode".equals(o.id()))
+            .map(o -> o.selectedValueId())
+            .filter(v -> v != null && !v.isBlank())
+            .findFirst().orElse(null);
+        if (!slug.equals(currentMode)) {
+            setConfigOption(sessionId, "mode", slug);
+        }
     }
 
     @Override
@@ -396,6 +475,7 @@ public final class OpenCodeClient extends AcpClient {
                 params.addProperty("configId", "model");
                 params.addProperty("value", modelId);
                 transport.sendRequest("session/set_config_option", params)
+                    .whenComplete(this::applyConfigOptionEcho)
                     .get(SET_CONFIG_OPTION_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
             } catch (java.util.concurrent.ExecutionException e) {
                 if (e.getCause() instanceof com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcException jre
@@ -431,7 +511,7 @@ public final class OpenCodeClient extends AcpClient {
      * versions return {@code true}: the method-not-found fallback in
      * {@link #sendSetModel} recovers a misdetected old build.
      */
-    static boolean isOpenCodeV2OrLater(@org.jetbrains.annotations.Nullable String version) {
+    static boolean isOpenCodeV2OrLater(@Nullable String version) {
         int[] parsed = KiroClient.parseVersion(version);
         return parsed == null || parsed[0] >= 2;
     }

@@ -316,6 +316,19 @@ public abstract class AbstractClient {
         return false;
     }
 
+    /**
+     * Whether switching the primary agent to {@code slug} can be applied to the live session
+     * without restarting the agent process. When {@code true}, the UI applies the selection
+     * immediately via {@link #setCurrentAgentSlug(String)} (whose change hook pushes it to the
+     * agent); when {@code false}, the UI falls back to the process-restart flow. Slug-aware so
+     * clients that can live-switch only a subset of their advertised agents (e.g. OpenCode v2,
+     * where only the {@code build}/{@code plan} session modes are switchable) can answer per
+     * selection.
+     */
+    public boolean canSwitchAgentLive(@Nullable String slug) {
+        return false;
+    }
+
     // ─── Session Options ─────────────────────────────
 
     /**

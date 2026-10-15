@@ -475,7 +475,7 @@ class AcpMessageParser {
         return new SessionUpdate.ConfigOptionsChanged(options);
     }
 
-    private static NewSessionResponse.SessionConfigOption parseConfigOption(JsonObject obj) {
+    static NewSessionResponse.SessionConfigOption parseConfigOption(JsonObject obj) {
         String id = getStringOrNull(obj, "id");
         String label = resolveLabel(obj, id);
         String selectedValueId = getStringOrNull(obj, "selectedValueId");
