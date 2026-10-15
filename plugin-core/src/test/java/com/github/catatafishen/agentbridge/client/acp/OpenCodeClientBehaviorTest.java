@@ -103,14 +103,32 @@ class OpenCodeClientBehaviorTest {
             StandardCharsets.UTF_8
         );
 
-        OpenCodeClient client = new OpenCodeClient(project);
-        List<AbstractClient.AgentMode> agents = client.getAvailableAgents();
+        // Sandbox user.home so the global agents scan cannot pick up real user-level
+        // agents from the machine running the test; a fake home also lets us cover the
+        // global pickup end to end.
+        Path fakeHome = tempDir.resolve("fake-home");
+        Files.createDirectories(fakeHome.resolve(".opencode/agents"));
+        Files.writeString(
+            fakeHome.resolve(".opencode/agents/userlevel.md"),
+            "---\nname: User Level\ndescription: From the global dir\n---\n",
+            StandardCharsets.UTF_8
+        );
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", fakeHome.toString());
+        List<AbstractClient.AgentMode> agents;
+        try {
+            OpenCodeClient client = new OpenCodeClient(project);
+            agents = client.getAvailableAgents();
+        } finally {
+            System.setProperty("user.home", realHome);
+        }
 
         assertEquals(
-            List.of("build", "plan", "general", "explore", "scout", "shared", "local"),
+            List.of("build", "plan", "general", "explore", "scout", "userlevel", "shared", "local"),
             agents.stream().map(AbstractClient.AgentMode::slug).toList()
         );
-        assertEquals("Shared Primary", agents.get(5).name());
+        assertEquals("Shared Primary", agents.get(6).name());
+        assertEquals("User Level", agents.get(5).name());
         assertTrue(agents.stream().noneMatch(agent -> "Shadow Build".equals(agent.name())));
     }
 

@@ -16,9 +16,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +51,13 @@ public final class OpenCodeClient extends AcpClient {
     private static final String PROJECT_AGENT_DIR = ".opencode/agent";
     private static final String PROJECT_AGENTS_DIR = ".opencode/agents";
     private static final String DEPLOYED_AGENT_DIR = ".agent-work/opencode/agent";
+
+    /**
+     * OpenCode version probed during {@link #finalizeCommand}, before the process is spawned.
+     * {@link #buildEnvironment} runs before the ACP {@code initialize} handshake, so the version
+     * reported by the agent itself is not available yet — the probe result is the only source.
+     */
+    private volatile String probedVersion;
 
     private static final String KEY_RAW_INPUT = "rawInput";
     private static final List<String> NATIVE_TOOLS_TO_DENY = List.of(
@@ -96,18 +108,67 @@ public final class OpenCodeClient extends AcpClient {
 
     @Override
     public List<AbstractClient.AgentMode> getAvailableAgents() {
-        List<AbstractClient.AgentMode> agents = new ArrayList<>(builtInAgents());
+        // The exclusion set always covers all five built-in slugs, including the three
+        // dropped from the v2 menu: on v2+ this client injects its own inline explore,
+        // so a user's explore.md on disk is deliberately NOT listed (the plugin owns
+        // that entry), and general/explore/scout files cannot shadow what v2 itself
+        // treats as built-ins. v1 keeps the full list, where the same exclusion
+        // protects the built-ins from disk discoveries.
+        Set<String> builtInSlugs = Set.of(BUILD_AGENT, PLAN_AGENT, GENERAL_AGENT, EXPLORE_AGENT, SCOUT_AGENT);
+        List<AbstractClient.AgentMode> projectAgents = List.of();
         String basePath = project.getBasePath();
         if (basePath != null) {
-            agents.addAll(ProjectAgentScanner.scanAgentDirectories(
+            projectAgents = ProjectAgentScanner.scanAgentDirectories(
                 Path.of(basePath),
-                Set.of(BUILD_AGENT, PLAN_AGENT, GENERAL_AGENT, EXPLORE_AGENT, SCOUT_AGENT),
+                builtInSlugs,
                 PROJECT_AGENT_DIR,
                 PROJECT_AGENTS_DIR,
                 DEPLOYED_AGENT_DIR
-            ));
+            );
         }
-        return agents;
+        return mergeAgents(
+            builtInAgentsFor(probedVersion),
+            ProjectAgentScanner.scanGlobalAgents(globalOpenCodeAgentDirs(), builtInSlugs),
+            projectAgents
+        );
+    }
+
+    /**
+     * The user-level OpenCode agents directories, in OpenCode's own precedence order
+     * (an earlier directory wins on slug collisions): v2 reads both {@code
+     * ~/.opencode/agents} and the documented XDG location {@code ~/.config/opencode/agents},
+     * with the former overriding the latter on collisions (verified live on v2.0.27).
+     */
+    static List<Path> globalOpenCodeAgentDirs() {
+        Path home = Path.of(System.getProperty("user.home"));
+        return List.of(home.resolve(".opencode/agents"), home.resolve(".config/opencode/agents"));
+    }
+
+    /**
+     * Merges the dropdown's three agent sources: built-ins, user-level global agents
+     * ({@code ~/.opencode/agents}) and project-scanned agents. OpenCode's own precedence
+     * applies: a project agent with the same slug as a global one wins (project config
+     * overrides global), and built-ins are never shadowed (the scanners exclude their
+     * slugs, and {@code putIfAbsent} guards them again here). Without the global scan the
+     * Agent menu omits user-level custom agents even though OpenCode still advertises
+     * them as mode values, which leaks near-duplicate Mode and session-option sections
+     * into the dropdown.
+     */
+    static List<AbstractClient.AgentMode> mergeAgents(List<AbstractClient.AgentMode> builtIns,
+                                                      List<AbstractClient.AgentMode> globalAgents,
+                                                      List<AbstractClient.AgentMode> projectAgents) {
+        Map<String, AbstractClient.AgentMode> merged = new LinkedHashMap<>();
+        Set<String> builtInSlugs = new HashSet<>();
+        for (AbstractClient.AgentMode agent : builtIns) {
+            builtInSlugs.add(agent.slug());
+            merged.putIfAbsent(agent.slug(), agent);
+        }
+        for (AbstractClient.AgentMode agent : globalAgents) merged.putIfAbsent(agent.slug(), agent);
+        // Project wins over global on slug collisions, but never over a built-in.
+        for (AbstractClient.AgentMode agent : projectAgents) {
+            if (!builtInSlugs.contains(agent.slug())) merged.put(agent.slug(), agent);
+        }
+        return new ArrayList<>(merged.values());
     }
 
     static List<AbstractClient.AgentMode> builtInAgents() {
@@ -120,6 +181,28 @@ public final class OpenCodeClient extends AcpClient {
         );
     }
 
+    /**
+     * The built-in agent list for the probed OpenCode version. On v2, the only built-in
+     * PRIMARY agents are the session modes {@code build} and {@code plan}: the {@code mode}
+     * config option (the switchable primary surface on v2) advertises exactly those, plus
+     * custom project agents from {@code .opencode/agents}. {@code general} and {@code explore}
+     * are Task-tool subagents (spawned by the model, not selectable as primaries: v2 rejects
+     * them with {@code -32602 mode not found}), and {@code scout} does not exist at all on v2
+     * (v2 docs: "V2 has no built-in scout agent"). Advertising any of the three in the Agent
+     * menu puts a phantom entry there that cannot be launched, so all are dropped whenever
+     * the version is known to be v2+. The explore subagent itself stays available to the
+     * model via the inline config this client injects, and project-scanned custom agents
+     * remain listed. Unknown or v1 versions keep the full list (conservative default).
+     */
+    static List<AbstractClient.AgentMode> builtInAgentsFor(@Nullable String probedVersion) {
+        List<AbstractClient.AgentMode> agents = builtInAgents();
+        if (!isDefinitelyOpenCodeV2(probedVersion)) return agents;
+        Set<String> nonPrimaryOnV2 = Set.of(SCOUT_AGENT, GENERAL_AGENT, EXPLORE_AGENT);
+        return agents.stream()
+            .filter(a -> !nonPrimaryOnV2.contains(a.slug()))
+            .toList();
+    }
+
     @Override
     protected List<String> buildCommand(String cwd, int mcpPort) {
         // On Windows, opencode is installed via npm and the native binary is not on PATH.
@@ -130,13 +213,6 @@ public final class OpenCodeClient extends AcpClient {
         if (profile != null) {
             cmd.addAll(profile.parsedExtraCliArgs());
         }
-        return cmd;
-    }
-
-    @Override
-    protected List<String> finalizeCommand(List<String> resolvedCommand) {
-        List<String> cmd = new ArrayList<>(resolvedCommand);
-        pinServerPort(cmd, () -> OpenCodeVersionProbe.probe(resolvedCommand.getFirst()));
         return cmd;
     }
 
@@ -230,11 +306,191 @@ public final class OpenCodeClient extends AcpClient {
 
     @Override
     protected Map<String, String> buildEnvironment(int mcpPort, String cwd) {
-        return buildPermissionConfig();
+        return buildInitConfig(probedVersion);
+    }
+
+    @Override
+    protected List<String> finalizeCommand(List<String> resolvedCommand) {
+        List<String> cmd = new ArrayList<>(resolvedCommand);
+        probedVersion = OpenCodeVersionProbe.probe(resolvedCommand.getFirst());
+        pinServerPort(cmd, () -> probedVersion);
+        return cmd;
+    }
+
+    /**
+     * Builds the {@code OPENCODE_CONFIG_CONTENT} environment variable: the native-tool deny list,
+     * plus — on a confirmed OpenCode v2+ — an inline {@code agents} entry defining the read-only
+     * {@code explore} subagent.
+     *
+     * <p>Why inline: v2 no longer reads agent markdown files from the directories the plugin used
+     * to deploy (the bundled {@code agents/opencode/ide-explore.md} was never deployed to a v2
+     * location, so the "Explore" entry advertised in the agent dropdown had no backend definition
+     * and every task started with it failed). v2's config schema supports inline {@code agents}
+     * keyed by slug, merged late via {@code OPENCODE_CONFIG_CONTENT}, so the definition travels
+     * with the process launch and needs no files in the user's project.</p>
+     *
+     * <p>Only a <em>confirmed</em> v2 version gets the {@code agents} key: an unknown version must
+     * not risk breaking a v1 install that may reject unknown config keys — an unresolvable version
+     * leaves the config exactly as it was before this change.</p>
+     *
+     * <p>NOTE: We do NOT set {@code "default_agent"} here. OpenCode v1.4.10+ rejects
+     * subagent slugs (like "build", "plan", "explore") as the {@code default_agent} value,
+     * causing {@code session/new} to fail with
+     * {@code "default agent \"build\" is a subagent"}. OpenCode selects its own default
+     * agent internally — the plugin's agent dropdown controls which agent to start via
+     * the session/create flow instead.</p>
+     */
+    static Map<String, String> buildInitConfig(@Nullable String installedVersion) {
+        JsonObject config = new JsonObject();
+        config.add("permission", permissionDenyConfig());
+        if (isDefinitelyOpenCodeV2(installedVersion)) {
+            JsonObject explore = inlineExploreAgent();
+            if (explore != null) {
+                JsonObject agents = new JsonObject();
+                agents.add(EXPLORE_AGENT, explore);
+                config.add("agents", agents);
+            }
+        }
+        return Map.of("OPENCODE_CONFIG_CONTENT", new Gson().toJson(config));
+    }
+
+    /** True only when the version is known and its major is ≥ 2 (unknown versions are NOT v2 here). */
+    private static boolean isDefinitelyOpenCodeV2(@Nullable String version) {
+        int[] parsed = KiroClient.parseVersion(version);
+        return parsed != null && parsed[0] >= 2;
+    }
+
+    /**
+     * The read-only plugin MCP tools the explore subagent may call (v2 names MCP tools with
+     * underscores and gates them under the {@code execute} permission).
+     */
+    private static final List<String> EXPLORE_ALLOWED_MCP_TOOLS = List.of(
+        "agentbridge_read_file", "agentbridge_search_text", "agentbridge_search_symbols",
+        "agentbridge_list_project_files", "agentbridge_get_file_outline", "agentbridge_find_references",
+        "agentbridge_go_to_declaration", "agentbridge_get_type_hierarchy", "agentbridge_find_implementations",
+        "agentbridge_get_call_hierarchy", "agentbridge_get_class_outline", "agentbridge_get_documentation",
+        "agentbridge_git_status", "agentbridge_git_diff", "agentbridge_git_log", "agentbridge_git_blame",
+        "agentbridge_get_problems", "agentbridge_get_compilation_errors"
+    );
+
+    /** Mutating plugin MCP tools the explore subagent is explicitly denied. */
+    private static final List<String> EXPLORE_DENIED_MCP_TOOLS = List.of(
+        "agentbridge_write_file", "agentbridge_edit_text", "agentbridge_delete_file",
+        "agentbridge_git_commit", "agentbridge_git_stage", "agentbridge_run_command",
+        "agentbridge_build_project"
+    );
+
+    /**
+     * Builds the v2 inline definition of the {@code explore} subagent: read-only native tools
+     * allowed, mutating native tools denied, the plugin's read-only MCP tools allowed under
+     * {@code execute}, and the bundled explore prompt as {@code system}. No {@code model} key —
+     * the subagent inherits the session model.
+     *
+     * @return the agent object, or null when the bundled prompt resource cannot be loaded (in
+     * which case the config stays as before — the agent simply is not defined inline)
+     */
+    private static @Nullable JsonObject inlineExploreAgent() {
+        String prompt = bundledExplorePrompt();
+        if (prompt == null) {
+            return null;
+        }
+        JsonObject agent = new JsonObject();
+        agent.addProperty("description", "Fast read-only subagent for codebase exploration");
+        agent.addProperty("mode", "subagent");
+
+        // v2 Permission.Ruleset: an ORDERED array of {action, resource, effect} rules
+        // (packages/schema/src/permission.ts). Evaluation is last-match-wins; agent rules
+        // are appended AFTER the built-in explore's policy and the top-level config rules
+        // (verified live on opencode v2.0.27 via `opencode debug agents` run with the
+        // exact injected config): our appended rules win for the actions they cover, and
+        // the built-in explore's catch-all deny keeps uncovered MCP/other actions blocked.
+        // The top-level native-tool denies this client also injects land after the
+        // built-in explore's read-only allows, so the subagent's native read/grep/glob
+        // end up denied as well: it reaches the codebase exclusively through the
+        // plugin's MCP tools under execute. The rule list carves out:
+        //  - execute: the only reachability path for MCP tools in v2 Code Mode
+        //  - the plugin's 18 read-only agentbridge_* tools allowed
+        //  - the plugin's 7 mutating agentbridge_* tools denied (defense in depth)
+        //  - every mutating native action denied (edit covers write+patch; shell
+        //    beats the built-in explore's surviving shell allow)
+        JsonArray permissions = new JsonArray();
+        permissions.add(permissionRule("execute", "allow"));
+        for (String tool : EXPLORE_ALLOWED_MCP_TOOLS) {
+            permissions.add(permissionRule(tool, "allow"));
+        }
+        for (String tool : EXPLORE_DENIED_MCP_TOOLS) {
+            permissions.add(permissionRule(tool, "deny"));
+        }
+        for (String tool : List.of("edit", "write", "patch", "bash", "shell")) {
+            permissions.add(permissionRule(tool, "deny"));
+        }
+        agent.add("permissions", permissions);
+
+        // v2 ConfigAgent.Info.system is a plain string.
+        agent.addProperty("system", prompt);
+        return agent;
+    }
+
+    private static JsonObject permissionRule(String action, String effect) {
+        JsonObject rule = new JsonObject();
+        rule.addProperty("action", action);
+        rule.addProperty("resource", "*");
+        rule.addProperty("effect", effect);
+        return rule;
+    }
+
+    /**
+     * The markdown body (frontmatter stripped) of the bundled
+     * {@code agents/opencode/ide-explore.md} prompt.
+     */
+    private static @Nullable String bundledExplorePrompt() {
+        try (InputStream in = OpenCodeClient.class.getResourceAsStream("/agents/opencode/ide-explore.md")) {
+            if (in == null) {
+                return null;
+            }
+            String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            return stripFrontmatter(content);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Strips v1-style YAML frontmatter from a bundled agent prompt: the v2 inline
+     * definition carries its own metadata, so the file's frontmatter (permission map,
+     * model pin) must not leak into the system prompt. The closing fence is located by
+     * scanning for a line whose trimmed content is {@code ---} (lenient about
+     * indentation and trailing whitespace); an {@code indexOf} search would
+     * cut at a {@code ---} inside a multi-line YAML value and leak the rest of the
+     * frontmatter into the prompt. Returns null when the content is unusable (an
+     * unclosed frontmatter fence, or nothing left after stripping). Package-private
+     * for unit testing.
+     */
+    static @Nullable String stripFrontmatter(String content) {
+        String body = content;
+        if (content.startsWith("---")) {
+            String[] lines = content.split("\n", -1);
+            int fence = -1;
+            for (int i = 1; i < lines.length; i++) {
+                if (lines[i].trim().equals("---")) {
+                    fence = i;
+                    break;
+                }
+            }
+            if (fence < 0) {
+                return null;
+            }
+            body = String.join("\n", Arrays.asList(lines).subList(fence + 1, lines.length));
+        }
+        String prompt = body.strip();
+        return prompt.isEmpty() ? null : prompt;
     }
 
     /**
      * Builds the OPENCODE_CONFIG_CONTENT environment variable denying native tools.
+     * Legacy helper: the production launch path is {@link #buildInitConfig}, which wraps
+     * this shape and adds the v2 inline agents map. Retained for v1 compatibility
+     * verification and direct testing of the deny map.
      *
      * <p>NOTE: We do NOT set {@code "default_agent"} here. OpenCode v1.4.10+ rejects
      * subagent slugs (like "build", "plan", "explore") as the {@code default_agent} value,
@@ -244,13 +500,21 @@ public final class OpenCodeClient extends AcpClient {
      * the session/create flow instead.</p>
      */
     static Map<String, String> buildPermissionConfig() {
+        JsonObject config = new JsonObject();
+        config.add("permission", permissionDenyConfig());
+        return Map.of("OPENCODE_CONFIG_CONTENT", new Gson().toJson(config));
+    }
+
+    /**
+     * The permission object denying the mutating native tools, shared by the v2 init config
+     * and the v1 permission config so the two cannot drift.
+     */
+    private static JsonObject permissionDenyConfig() {
         JsonObject permission = new JsonObject();
         for (String tool : NATIVE_TOOLS_TO_DENY) {
             permission.addProperty(tool, "deny");
         }
-        JsonObject config = new JsonObject();
-        config.add("permission", permission);
-        return Map.of("OPENCODE_CONFIG_CONTENT", new Gson().toJson(config));
+        return permission;
     }
 
     /**
@@ -431,7 +695,7 @@ public final class OpenCodeClient extends AcpClient {
      * versions return {@code true}: the method-not-found fallback in
      * {@link #sendSetModel} recovers a misdetected old build.
      */
-    static boolean isOpenCodeV2OrLater(@org.jetbrains.annotations.Nullable String version) {
+    static boolean isOpenCodeV2OrLater(@Nullable String version) {
         int[] parsed = KiroClient.parseVersion(version);
         return parsed == null || parsed[0] >= 2;
     }

@@ -53,4 +53,49 @@ class ProjectAgentScannerDirectoryScanTest {
         assertEquals("Primary", agents.get(0).name());
         assertEquals("extra", agents.get(1).name());
     }
+
+    @Test
+    void scanGlobalAgentsListsUserLevelFilesAndSkipsExcludedSlugs() throws Exception {
+        Files.writeString(
+            tempDir.resolve("global-only.md"),
+            "---\nname: Global Only\n---\n",
+            StandardCharsets.UTF_8
+        );
+        Files.writeString(
+            tempDir.resolve("build.md"),
+            "---\nname: Build Shadow\n---\n",
+            StandardCharsets.UTF_8
+        );
+
+        List<AgentMode> agents = ProjectAgentScanner.scanGlobalAgents(
+            List.of(tempDir), Set.of("build"));
+
+        assertEquals(List.of("global-only"), agents.stream().map(AgentMode::slug).toList());
+        assertEquals("Global Only", agents.getFirst().name());
+    }
+
+    @Test
+    void scanGlobalAgentsToleratesMissingDirectories() {
+        List<AgentMode> agents = ProjectAgentScanner.scanGlobalAgents(
+            List.of(tempDir.resolve("does-not-exist"), tempDir.resolve("also-missing")),
+            Set.of("build"));
+        assertEquals(List.of(), agents);
+    }
+
+    @Test
+    void scanGlobalAgentsEarlierDirectoryWinsOnSlugCollision() throws Exception {
+        Path first = tempDir.resolve("first");
+        Path second = tempDir.resolve("second");
+        Files.createDirectories(first);
+        Files.createDirectories(second);
+        Files.writeString(first.resolve("dupe.md"), "---\nname: From First\n---\n", StandardCharsets.UTF_8);
+        Files.writeString(second.resolve("dupe.md"), "---\nname: From Second\n---\n", StandardCharsets.UTF_8);
+        Files.writeString(second.resolve("extra.md"), "---\nname: Extra\n---\n", StandardCharsets.UTF_8);
+
+        List<AgentMode> agents = ProjectAgentScanner.scanGlobalAgents(
+            List.of(first, second), Set.of());
+
+        assertEquals(List.of("dupe", "extra"), agents.stream().map(AgentMode::slug).toList());
+        assertEquals("From First", agents.getFirst().name());
+    }
 }

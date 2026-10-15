@@ -1,5 +1,6 @@
 package com.github.catatafishen.agentbridge.client.acp;
 
+import com.github.catatafishen.agentbridge.client.AbstractClient;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -7,6 +8,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -151,6 +154,39 @@ class OpenCodeClientStaticMethodsTest {
         }
     }
 
+    @Nested
+    @DisplayName("builtInAgentsFor")
+    class BuiltInAgentsFor {
+
+        @Test
+        @DisplayName("v2 keeps only the primary session modes (build, plan)")
+        void v2KeepsOnlyPrimaryModes() {
+            var agents = OpenCodeClient.builtInAgentsFor("2.0.27");
+
+            assertEquals(2, agents.size());
+            assertEquals("build", agents.get(0).slug());
+            assertEquals("plan", agents.get(1).slug());
+            // general/explore are Task-tool subagents on v2 (rejected with -32602 mode
+            // not found as primaries); scout does not exist on v2 at all.
+            assertTrue(agents.stream().noneMatch(a -> "scout".equals(a.slug())),
+                "scout must not be advertised on v2 - it cannot be launched");
+            assertTrue(agents.stream().noneMatch(a -> "general".equals(a.slug())),
+                "general must not be advertised as a primary on v2");
+            assertTrue(agents.stream().noneMatch(a -> "explore".equals(a.slug())),
+                "explore must not be advertised as a primary on v2");
+        }
+
+        @Test
+        @DisplayName("unknown or v1 versions keep the full list (conservative default)")
+        void unknownOrV1KeepsScout() {
+            assertEquals(5, OpenCodeClient.builtInAgentsFor(null).size());
+            assertEquals(5, OpenCodeClient.builtInAgentsFor("").size());
+            assertEquals(5, OpenCodeClient.builtInAgentsFor("1.4.10").size());
+            assertTrue(OpenCodeClient.builtInAgentsFor("1.4.10").stream()
+                .anyMatch(a -> "scout".equals(a.slug())));
+        }
+    }
+
     // ── extractTaskSubAgentType ──────────────────────────────────────────────
 
     @Nested
@@ -290,6 +326,67 @@ class OpenCodeClientStaticMethodsTest {
 
             JsonObject server = params.getAsJsonArray("mcpServers").get(0).getAsJsonObject();
             assertEquals("http://127.0.0.1:8080/mcp", server.get("url").getAsString());
+        }
+    }
+
+    @Nested
+    @DisplayName("mergeAgents")
+    class MergeAgents {
+
+        private static AbstractClient.AgentMode agent(String slug, String name) {
+            return new AbstractClient.AgentMode(slug, name, null);
+        }
+
+        @Test
+        @DisplayName("lists a global custom agent alongside built-ins and project agents")
+        void globalAgentAppears() {
+            var merged = OpenCodeClient.mergeAgents(
+                List.of(agent("build", "Build"), agent("plan", "Plan")),
+                List.of(agent("global-test", "Global Test")),
+                List.of(agent("project-test", "Project Test"))
+            );
+            assertEquals(
+                List.of("build", "plan", "global-test", "project-test"),
+                merged.stream().map(AbstractClient.AgentMode::slug).toList());
+        }
+
+        @Test
+        @DisplayName("project agent with the same slug as a global one wins")
+        void projectOverridesGlobal() {
+            var merged = OpenCodeClient.mergeAgents(
+                List.of(agent("build", "Build")),
+                List.of(agent("shared", "Global Shared")),
+                List.of(agent("shared", "Project Shared"))
+            );
+            assertEquals(List.of("build", "shared"), merged.stream().map(AbstractClient.AgentMode::slug).toList());
+            assertEquals("Project Shared", merged.get(1).name());
+        }
+
+        @Test
+        @DisplayName("built-ins are never shadowed by same-slug discoveries")
+        void builtInsNotShadowed() {
+            var merged = OpenCodeClient.mergeAgents(
+                List.of(agent("build", "Build")),
+                List.of(agent("build", "Fake Build")),
+                List.of(agent("build", "Other Build"))
+            );
+            assertEquals(1, merged.size());
+            assertEquals("Build", merged.getFirst().name());
+        }
+    }
+
+    @Nested
+    @DisplayName("globalOpenCodeAgentDirs")
+    class GlobalOpenCodeAgentDirs {
+
+        @Test
+        @DisplayName("covers both global agent locations, .opencode first (it wins on collisions)")
+        void coversBothGlobalDirsInPrecedenceOrder() {
+            var dirs = OpenCodeClient.globalOpenCodeAgentDirs();
+            assertEquals(2, dirs.size());
+            Path home = Path.of(System.getProperty("user.home"));
+            assertEquals(home.resolve(".opencode/agents"), dirs.get(0));
+            assertEquals(home.resolve(".config/opencode/agents"), dirs.get(1));
         }
     }
 }

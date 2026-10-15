@@ -62,27 +62,56 @@ final class ProjectAgentScanner {
         Map<String, AgentMode> discovered = new LinkedHashMap<>();
 
         for (String relDir : relativeDirs) {
-            Path dir = projectBasePath.resolve(relDir);
-            if (!Files.isDirectory(dir)) continue;
-
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.md")) {
-                for (Path file : stream) {
-                    String filename = file.getFileName().toString();
-                    String slug = filename.substring(0, filename.length() - ".md".length());
-                    if (builtInSlugs.contains(slug) || discovered.containsKey(slug)) continue;
-
-                    AgentMode mode = parseAgentFile(file, slug);
-                    if (mode != null) {
-                        discovered.put(slug, mode);
-                        LOG.info("ProjectAgentScanner: discovered agent '" + slug + "' from " + file);
-                    }
-                }
-            } catch (IOException e) {
-                LOG.warn("ProjectAgentScanner: failed to scan agent directory: " + dir, e);
-            }
+            scanDirectory(projectBasePath.resolve(relDir), builtInSlugs, discovered);
         }
 
         return new ArrayList<>(discovered.values());
+    }
+
+    /**
+     * Scans the global (absolute) OpenCode agents directories for user-defined agent
+     * {@code .md} files. OpenCode v2 reads two global locations and merges them with the
+     * project agents into one surface, so the plugin lists all of them; earlier
+     * directories win on slug collisions, matching OpenCode's own precedence. Slugs
+     * colliding with {@code excludedSlugs} (e.g. built-in agent slugs) are skipped.
+     *
+     * @param globalAgentDirs absolute paths of the user-level agents directories, in precedence order
+     * @param excludedSlugs   slugs that must not be shadowed (built-in agents)
+     * @return discovered agents (may be empty, never null)
+     */
+    static @NotNull List<AgentMode> scanGlobalAgents(@NotNull List<Path> globalAgentDirs,
+                                                     @NotNull Set<String> excludedSlugs) {
+        Map<String, AgentMode> discovered = new LinkedHashMap<>();
+        for (Path dir : globalAgentDirs) {
+            scanDirectory(dir, excludedSlugs, discovered);
+        }
+        return new ArrayList<>(discovered.values());
+    }
+
+    /**
+     * Scans one directory for {@code .md} agent files, adding to {@code discovered}.
+     * A slug already present in {@code discovered} or in {@code excludedSlugs} is skipped.
+     */
+    private static void scanDirectory(@NotNull Path dir,
+                                      @NotNull Set<String> excludedSlugs,
+                                      @NotNull Map<String, AgentMode> discovered) {
+        if (!Files.isDirectory(dir)) return;
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, "*.md")) {
+            for (Path file : stream) {
+                String filename = file.getFileName().toString();
+                String slug = filename.substring(0, filename.length() - ".md".length());
+                if (excludedSlugs.contains(slug) || discovered.containsKey(slug)) continue;
+
+                AgentMode mode = parseAgentFile(file, slug);
+                if (mode != null) {
+                    discovered.put(slug, mode);
+                    LOG.info("ProjectAgentScanner: discovered agent '" + slug + "' from " + file);
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("ProjectAgentScanner: failed to scan agent directory: " + dir, e);
+        }
     }
 
     /**
