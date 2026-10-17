@@ -9,8 +9,8 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.*
+import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
-import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import javax.swing.JEditorPane
 import javax.swing.JScrollPane
@@ -129,27 +129,7 @@ class NativeMarkdownPane(private val fileNavigator: FileNavigator) : JEditorPane
         kit.styleSheet = createStyleSheet()
         editorKit = kit
 
-        addMouseWheelListener { e ->
-            if (e.isShiftDown) {
-                val view = findScrollableCodeViewAt(e.point) ?: return@addMouseWheelListener
-                e.consume()
-                view.scroll((e.wheelRotation * JBUI.scale(15)).toInt())
-                repaint()
-            } else {
-                // Registering any MouseWheelListener blocks automatic Swing propagation,
-                // so forward vertical scroll events explicitly to the enclosing scroll pane.
-                val sp = SwingUtilities.getAncestorOfClass(JScrollPane::class.java, this) as? JScrollPane
-                    ?: return@addMouseWheelListener
-                val pt = SwingUtilities.convertPoint(this, e.point, sp)
-                sp.dispatchEvent(
-                    MouseWheelEvent(
-                        sp, e.id, e.`when`, e.modifiersEx, pt.x, pt.y,
-                        e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger,
-                        e.scrollType, e.scrollAmount, e.wheelRotation, e.preciseWheelRotation
-                    )
-                )
-            }
-        }
+        addMouseWheelListener { e -> handleWheel(e) }
 
         addHyperlinkListener { e ->
             if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
@@ -221,6 +201,13 @@ class NativeMarkdownPane(private val fileNavigator: FileNavigator) : JEditorPane
         // (guarded by `if (length > 0)`) and goes straight to insertString().
         document = (editorKit as HTMLEditorKit).createDefaultDocument()
         text = "<html><body>$html</body></html>"
+        // The fresh document builds a new view tree, so an in-progress strip drag
+        // would keep scrolling a detached view; drop the interaction state.
+        stripDrag = null
+        if (stripCursorActive) {
+            cursor = Cursor.getDefaultCursor()
+            stripCursorActive = false
+        }
     }
 
     /**
@@ -511,6 +498,163 @@ class NativeMarkdownPane(private val fileNavigator: FileNavigator) : JEditorPane
         return ss
     }
 
+    /**
+     * Clears the cached rendered frame so the next paint re-renders. Needed after
+     * code-block horizontal scroll changes: [contentVersion] only tracks content
+     * edits, so without this the paint cache would keep blitting the frame from
+     * before the scroll and the block would appear frozen.
+     */
+    private fun invalidatePaintCache() {
+        paintCache = null
+    }
+
+    /**
+     * Wheel routing: Shift+wheel over a code block scrolls it horizontally; every
+     * other wheel event is forwarded to the enclosing scroll pane so the chat keeps
+     * scrolling vertically. A plain wheel must never be trapped by a code block.
+     */
+    internal fun handleWheel(e: MouseWheelEvent) {
+        if (e.isShiftDown) {
+            val view = findScrollableCodeViewAt(e.point)
+            if (view != null && view.isScrollableNow()) {
+                e.consume()
+                view.scroll((e.wheelRotation * JBUI.scale(15)).toInt())
+                invalidatePaintCache()
+                repaint()
+                return
+            }
+        }
+        // Registering any MouseWheelListener blocks automatic Swing propagation,
+        // so forward vertical scroll events explicitly to the enclosing scroll pane.
+        val sp = SwingUtilities.getAncestorOfClass(JScrollPane::class.java, this) as? JScrollPane
+            ?: return
+        val pt = SwingUtilities.convertPoint(this, e.point, sp)
+        sp.dispatchEvent(
+            MouseWheelEvent(
+                sp, e.id, e.`when`, e.modifiersEx, pt.x, pt.y,
+                e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger,
+                e.scrollType, e.scrollAmount, e.wheelRotation, e.preciseWheelRotation
+            )
+        )
+    }
+
+    /** State of an in-progress drag on a code block's scrollbar strip. */
+    private class StripDrag(
+        val view: ScrollableCodeView,
+        val grabOffsetInThumb: Int,
+        val trackX: Int,
+        val trackW: Int,
+        val thumbW: Int,
+        val maxScroll: Int,
+    )
+
+    private var stripDrag: StripDrag? = null
+    private var stripCursorActive = false
+
+    /**
+     * Intercepts mouse events aimed at a code block's scrollbar strip BEFORE any
+     * listener (including the caret's selection handlers) sees them, so dragging the
+     * strip scrolls the block instead of selecting text. Events not aimed at a strip
+     * pass through untouched.
+     */
+    override fun processMouseEvent(e: MouseEvent) {
+        if (handleStripMouse(e)) return
+        super.processMouseEvent(e)
+    }
+
+    override fun processMouseMotionEvent(e: MouseEvent) {
+        if (handleStripMouse(e)) return
+        if (e.id == MouseEvent.MOUSE_DRAGGED && SwingUtilities.isLeftMouseButton(e)) {
+            handleSelectionAutoScroll(e)
+        }
+        super.processMouseMotionEvent(e)
+    }
+
+    /**
+     * Auto-scrolls a code block horizontally while the user drags a text selection
+     * inside it: dragging the selection past the block's right (or left) edge
+     * scrolls the block along with the selection, the way editors do. Never
+     * consumes the event; the caret still extends the selection, and because the
+     * scroll is part of the view geometry (ScrollableCodeView.getOffset), the
+     * selection endpoint maps to the text under the cursor. The further the cursor
+     * is dragged beyond the edge, the further the block scrolls.
+     */
+    internal fun handleSelectionAutoScroll(e: MouseEvent) {
+        val view = findScrollableCodeViewAt(e.point) ?: return
+        if (!view.isScrollableNow()) return
+        val r = view.allocationBounds() ?: return
+        val margin = JBUI.scale(24)
+        val contentX = (e.x - r.x) + view.currentScrollX()
+        val target = when {
+            e.x > r.x + r.width - margin -> contentX - (r.width - margin)
+            e.x < r.x + margin -> contentX - margin
+            else -> return
+        }
+        val clamped = target.coerceIn(0, view.maxScrollNow())
+        if (clamped != view.currentScrollX()) {
+            view.scrollTo(clamped)
+            invalidatePaintCache()
+            repaint()
+        }
+    }
+
+    /** Returns true when the event was consumed by strip interaction. */
+    internal fun handleStripMouse(e: MouseEvent): Boolean {
+        when (e.id) {
+            MouseEvent.MOUSE_PRESSED -> {
+                if (!SwingUtilities.isLeftMouseButton(e)) return false
+                val view = findScrollableCodeViewAt(e.point) ?: return false
+                if (!view.isStripHit(e.point)) return false
+                val geo = view.dragGeometry() ?: return false
+                val grab = if (e.x >= geo.thumbX && e.x <= geo.thumbX + geo.thumbW) {
+                    e.x - geo.thumbX // grabbed the thumb: keep the grab point under the cursor
+                } else {
+                    geo.thumbW / 2 // grabbed the track: center the thumb under the cursor
+                }
+                stripDrag = StripDrag(view, grab, geo.trackX, geo.trackW, geo.thumbW, geo.maxScroll)
+                // A press jumps the thumb immediately, so a plain click on the track
+                // scrolls; for a press on the thumb this is a no-op.
+                val avail = (geo.trackW - geo.thumbW).coerceAtLeast(1)
+                val x = (e.x - grab - geo.trackX).coerceIn(0, avail)
+                view.scrollTo(((x.toFloat() / avail) * geo.maxScroll).toInt())
+                invalidatePaintCache()
+                repaint()
+                e.consume()
+                return true
+            }
+            MouseEvent.MOUSE_DRAGGED -> {
+                val d = stripDrag ?: return false
+                val avail = (d.trackW - d.thumbW).coerceAtLeast(1)
+                val x = (e.x - d.grabOffsetInThumb - d.trackX).coerceIn(0, avail)
+                d.view.scrollTo(((x.toFloat() / avail) * d.maxScroll).toInt())
+                invalidatePaintCache()
+                repaint()
+                e.consume()
+                return true
+            }
+            MouseEvent.MOUSE_RELEASED, MouseEvent.MOUSE_CLICKED -> {
+                if (stripDrag == null) return false
+                stripDrag = null
+                e.consume()
+                return true
+            }
+            MouseEvent.MOUSE_MOVED -> {
+                // Hand cursor over the strip as the only visible affordance; restored
+                // to default once the cursor leaves it. Never consumes the event.
+                val hit = findScrollableCodeViewAt(e.point)?.isStripHit(e.point) == true
+                if (hit && !stripCursorActive) {
+                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    stripCursorActive = true
+                } else if (!hit && stripCursorActive) {
+                    cursor = Cursor.getDefaultCursor()
+                    stripCursorActive = false
+                }
+                return false
+            }
+        }
+        return false
+    }
+
     /** Returns the [ScrollableCodeView] whose allocated area contains [pt], or null. */
     private fun findScrollableCodeViewAt(pt: Point): ScrollableCodeView? {
         val ui = ui as? TextUI ?: return null
@@ -583,8 +727,12 @@ private class ScrollableCodeView(elem: Element) : BlockView(elem, View.Y_AXIS) {
     /** Natural (unconstrained) content width — only valid after [setSize] has been called. */
     private var naturalWidth = 0f
 
+    private var lastAllocWidth = 0f
+    private var lastPaintBounds: Rectangle? = null
+
     companion object {
-        private const val SCROLLBAR_H = 6  // px — thin track
+        private const val SCROLLBAR_H = 6  // px, thin track
+        private const val STRIP_HIT_H = 14  // px, generous grab zone; the visual track stays 6px
         private const val SCROLLBAR_TRACK_ALPHA = 60
         private const val SCROLLBAR_THUMB_ALPHA = 140
     }
@@ -592,6 +740,17 @@ private class ScrollableCodeView(elem: Element) : BlockView(elem, View.Y_AXIS) {
     /** Reports 0 so the outer pane never inflates to code-block natural width. */
     override fun getPreferredSpan(axis: Int): Float =
         if (axis == X_AXIS) 0f else super.getPreferredSpan(axis)
+
+    /**
+     * Reports 0 on the X axis for the same reason as [getPreferredSpan].
+     * [BoxView.layoutMinorAxis] never allocates a child less than its minimum
+     * span (spans = max(childMin, targetSpan)), and this view's children are
+     * uncapped inline views whose minimum is the longest code line, so without
+     * this override the minimum propagated up and the whole body laid out at
+     * the code width.
+     */
+    override fun getMinimumSpan(axis: Int): Float =
+        if (axis == X_AXIS) 0f else super.getMinimumSpan(axis)
 
     /**
      * Lays out children at their natural width (calling `super.getPreferredSpan` bypasses
@@ -612,25 +771,82 @@ private class ScrollableCodeView(elem: Element) : BlockView(elem, View.Y_AXIS) {
         scrollX = (scrollX + delta).coerceIn(0, maxScroll.toInt())
     }
 
-    private var lastAllocWidth = 0f
+    /** Absolute scroll position, clamped; used by strip dragging. */
+    fun scrollTo(x: Int) {
+        val maxScroll = (naturalWidth - lastAllocWidth).coerceAtLeast(0f)
+        scrollX = x.coerceIn(0, maxScroll.toInt())
+    }
+
+    fun maxScrollNow(): Int = (naturalWidth - lastAllocWidth).coerceAtLeast(0f).toInt()
+
+    fun isScrollableNow(): Boolean = naturalWidth > lastAllocWidth + 1f
+
+    /** Component-space drag strip (taller than the 6px visual track for easy grabbing). */
+    fun stripHitZone(): Rectangle? = lastPaintBounds?.let {
+        Rectangle(it.x, it.y + it.height - JBUI.scale(STRIP_HIT_H), it.width, JBUI.scale(STRIP_HIT_H))
+    }
+
+    /** True when the component-space point lands on this view's drag strip. */
+    fun isStripHit(pt: Point): Boolean = isScrollableNow() && stripHitZone()?.contains(pt) == true
+
+    /** Current scroll position, for tests. */
+    internal fun currentScrollX(): Int = scrollX
+
+    /** Thumb/track geometry in component space; null when the block cannot scroll. */
+    fun dragGeometry(): DragGeometry? {
+        val r = lastPaintBounds ?: return null
+        val maxScroll = maxScrollNow()
+        if (maxScroll <= 0) return null
+        val thumbFrac = (r.width / naturalWidth).coerceIn(0.05f, 1f)
+        val thumbW = (r.width * thumbFrac).toInt()
+            .coerceAtLeast(JBUI.scale(20))
+            .coerceAtMost(r.width)
+        val thumbX = r.x + ((scrollX.toFloat() / maxScroll) * (r.width - thumbW)).toInt()
+        return DragGeometry(r.x, r.width, thumbW, thumbX, maxScroll)
+    }
+
+    class DragGeometry(val trackX: Int, val trackW: Int, val thumbW: Int, val thumbX: Int, val maxScroll: Int)
+
+    /**
+     * Shifts child positions left by the current scroll. All geometry consumers
+     * (BoxView.paint, getChildAllocation for viewToModel/modelToView, caret and
+     * selection painting) go through this method, so the scroll becomes part of
+     * the view geometry: what is painted, what is hit-tested and what is selected
+     * stay glued together. Without this, a selection inside a scrolled block would
+     * map to the wrong characters (paint translated by the scroll, hit-testing did
+     * not), and selection-driven auto-scroll would drift.
+     */
+    protected override fun getOffset(axis: Int, childIndex: Int): Int =
+        if (axis == X_AXIS) super.getOffset(axis, childIndex) - scrollX
+        else super.getOffset(axis, childIndex)
+
+    /** Component-space allocation from the last paint, for hit testing. */
+    fun allocationBounds(): Rectangle? = lastPaintBounds?.let { Rectangle(it) }
 
     override fun paint(g: Graphics, allocation: Shape) {
         val r = (allocation as? Rectangle) ?: allocation.bounds
         lastAllocWidth = r.width.toFloat()
+        lastPaintBounds = Rectangle(r)
+
+        // A pure widening resize does not change the natural width, so the
+        // setSize() reset above will not have fired; re-clamp the scroll
+        // against the new allocation and clear it entirely once the block no
+        // longer overflows. Without this, a block scrolled before the resize
+        // keeps shifting its children left with no scrollbar in sight.
+        if (scrollX != 0) {
+            scrollX = if (naturalWidth > r.width) scrollX.coerceAtMost(maxScrollNow()) else 0
+        }
 
         val scrollable = naturalWidth > r.width
 
         val g2 = g as Graphics2D
-        val savedTransform = g2.transform.clone() as AffineTransform
         val savedClip = g2.clip
 
-        // Clip to allocated area and translate for horizontal scroll
+        // Clip to the allocated area; children paint at their scrolled positions
+        // (see getOffset) and are clipped here, so no translate is needed.
         g2.setClip(r.x, r.y, r.width, r.height)
-        g2.translate(-scrollX.toDouble(), 0.0)
-        super.paint(g2, Rectangle(r.x, r.y, naturalWidth.toInt(), r.height))
+        super.paint(g2, r)
 
-        // Restore
-        g2.transform = savedTransform
         g2.clip = savedClip
 
         // Overlay scrollbar on top — avoids cutting off the last line of code
@@ -638,20 +854,17 @@ private class ScrollableCodeView(elem: Element) : BlockView(elem, View.Y_AXIS) {
     }
 
     private fun paintScrollbar(g2: Graphics2D, r: Rectangle) {
+        val geo = dragGeometry() ?: return
         val trackY = r.y + r.height - JBUI.scale(SCROLLBAR_H)
         val trackH = JBUI.scale(SCROLLBAR_H)
-        val maxScroll = (naturalWidth - r.width).coerceAtLeast(1f)
-        val thumbFrac = (r.width / naturalWidth).coerceIn(0.05f, 1f)
-        val thumbW = (r.width * thumbFrac).toInt().coerceAtLeast(JBUI.scale(20))
-        val thumbX = r.x + ((scrollX / maxScroll) * (r.width - thumbW)).toInt()
 
         // Track
         g2.color = JBColor(Color(128, 128, 128, SCROLLBAR_TRACK_ALPHA), Color(200, 200, 200, SCROLLBAR_TRACK_ALPHA))
-        g2.fillRect(r.x, trackY, r.width, trackH)
+        g2.fillRect(geo.trackX, trackY, geo.trackW, trackH)
 
         // Thumb
         g2.color = JBColor(Color(128, 128, 128, SCROLLBAR_THUMB_ALPHA), Color(200, 200, 200, SCROLLBAR_THUMB_ALPHA))
-        g2.fillRoundRect(thumbX, trackY + 1, thumbW, trackH - 2, trackH, trackH)
+        g2.fillRoundRect(geo.thumbX, trackY + 1, geo.thumbW, trackH - 2, trackH, trackH)
     }
 }
 
