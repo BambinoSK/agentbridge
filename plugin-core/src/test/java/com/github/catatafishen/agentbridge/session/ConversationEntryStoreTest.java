@@ -249,6 +249,21 @@ class ConversationEntryStoreTest {
     }
 
     @Test
+    void updateToolCall_blankArgumentsDoNotOverwriteCapturedOnes() {
+        // A blank late tool_call_update must not wipe an input captured earlier:
+        // the live panel skips blanks the same way, so history replay and the
+        // live popup stay in sync.
+        store.addToolCallEntry("t1", "read_file", null, "file");
+        var real = new ChatPanelApi.ToolCallUpdate(null, null, null, false, null, "{\"path\":\"foo.txt\"}", null);
+        store.updateToolCall("t1", "running", real);
+        var blank = new ChatPanelApi.ToolCallUpdate(null, null, null, false, null, "  ", null);
+        store.updateToolCall("t1", "complete", blank);
+
+        var entry = (EntryData.ToolCall) store.getEntries().getFirst();
+        assertEquals("{\"path\":\"foo.txt\"}", entry.getArguments());
+    }
+
+    @Test
     void updateToolCall_ignoresUnknownId() {
         var update = new ChatPanelApi.ToolCallUpdate("details", null, null, false, null, null, null);
         // Should not throw

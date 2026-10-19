@@ -139,7 +139,7 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
         var title: String,
         val kind: String,
         val rawToolName: String,
-        val arguments: String? = null,
+        var arguments: String? = null,
         var status: String = "running",
         var result: String? = null,
         var description: String? = null,
@@ -975,6 +975,22 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
             update.details?.let { data.result = it }
             update.description?.let { data.description = it }
             update.kind?.let { data.status = status }
+            // OpenCode streams session/tool_call with an empty rawInput and only reveals
+            // the input in a later session/tool_call_update. The entry store already
+            // captures update.arguments (issue #1008); the live panel must too, or the
+            // tool popup keeps showing "Inputs 0 chars" for the rest of the session.
+            val hadArguments = !data.arguments.isNullOrBlank()
+            update.arguments?.takeIf { it.isNotBlank() }?.let { data.arguments = it }
+            if (!hadArguments && !data.arguments.isNullOrBlank()) {
+                // The chip label was derived from absent arguments at creation; re-derive
+                // it now that the input is known (e.g. a "title" or sleep-style label).
+                val lateTitle = ToolCallArgParser.extractChipTitle(data.arguments)
+                    ?: ToolCallArgParser.defaultChipTitle(data.rawToolName, data.arguments)
+                if (lateTitle != null) {
+                    data.title = lateTitle
+                    chip.updateTitle(lateTitle)
+                }
+            }
             if (update.autoDenied) data.autoDenied = true
             update.denialReason?.let { data.denialReason = it }
         }

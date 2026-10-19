@@ -137,7 +137,9 @@ class ConversationEntryStore {
             update.details?.let { entry.result = it }
             update.description?.let { entry.description = it }
             update.kind?.let { entry.kind = it }
-            update.arguments?.let { entry.arguments = it }
+            // Blank late arguments must not wipe an input captured earlier; the
+            // live panel skips them the same way, keeping history and UI in sync.
+            update.arguments?.takeIf { it.isNotBlank() }?.let { entry.arguments = it }
             entry.autoDenied = update.autoDenied
             update.denialReason?.let { entry.denialReason = it }
         }
