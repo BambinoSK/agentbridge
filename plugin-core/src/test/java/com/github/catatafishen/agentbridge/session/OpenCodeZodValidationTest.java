@@ -77,6 +77,13 @@ class OpenCodeZodValidationTest {
         }
     }
 
+    /** Creates an OpenCode 1.x database; the exporter skips databases OpenCode never initialized. */
+    private Path legacyDb() throws SQLException {
+        Path dbPath = tempDir.resolve("opencode.db");
+        OpenCodeClientRoundTripTest.createTables(dbPath);
+        return dbPath;
+    }
+
     @Test
     void exportedSessionPassesZodValidation() throws Exception {
         List<EntryData> entries = List.of(
@@ -88,7 +95,7 @@ class OpenCodeZodValidationTest {
             assistantText("You're welcome!")
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertTrue(sessionId != null && !sessionId.isEmpty(), "Export should succeed");
 
@@ -110,7 +117,7 @@ class OpenCodeZodValidationTest {
             subAgent("explore", "Exploring codebase", "Found 3 files")
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertTrue(sessionId != null && !sessionId.isEmpty());
 
@@ -133,7 +140,7 @@ class OpenCodeZodValidationTest {
             tc
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertTrue(sessionId != null && !sessionId.isEmpty());
 
@@ -162,7 +169,7 @@ class OpenCodeZodValidationTest {
             toolCall("read_file", "", "file content")
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertNotNull(sessionId);
 
@@ -184,7 +191,7 @@ class OpenCodeZodValidationTest {
             toolCall("search_text", null, "results")
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertNotNull(sessionId);
 
@@ -212,7 +219,7 @@ class OpenCodeZodValidationTest {
             assistantText("You're welcome!", "build", "claude-sonnet-4.6")
         );
 
-        Path dbPath = tempDir.resolve("opencode.db");
+        Path dbPath = legacyDb();
         String sessionId = OpenCodeClientExporter.exportSession(entries, dbPath, PROJECT_DIR);
         assertNotNull(sessionId, "Export should succeed");
 

@@ -241,13 +241,16 @@ class OpenCodeClientRoundTripTest {
     }
 
     @Test
-    void exportToNonExistentDbCreatesIt() {
+    void exportToNewDirectoryWithInitializedDbSucceeds() throws Exception {
+        // An empty database is treated as "not initialized by OpenCode" and skipped, so the
+        // legacy schema must exist already (as it does after OpenCode 1.x has started once).
         Path freshDb = tempDir.resolve("fresh/opencode.db");
-        // Need at least one non-prompt entry so stripping the trailing prompt leaves content
+        Files.createDirectories(freshDb.getParent());
+        createTables(freshDb);
         String sessionId = OpenCodeClientExporter.exportSession(
             List.of(promptEntry("hi"), textEntry("Hello!")), freshDb, PROJECT_DIR);
-        assertNotNull(sessionId, "Exporter should create the DB and succeed");
-        assertTrue(Files.exists(freshDb), "Database file should have been created");
+        assertNotNull(sessionId, "Exporter should succeed against an initialized legacy DB");
+        assertTrue(Files.exists(freshDb), "Database file should exist");
     }
 
     // ── Round-trip tests ────────────────────────────────────────────
@@ -606,7 +609,7 @@ class OpenCodeClientRoundTripTest {
      * Creates tables matching the real OpenCode schema (drizzle-managed).
      * This ensures tests validate against production constraints.
      */
-    private static void createTables(Path dbPath) throws SQLException {
+    static void createTables(Path dbPath) throws SQLException {
         try (Connection conn = connect(dbPath);
              Statement stmt = conn.createStatement()) {
             stmt.execute("""
