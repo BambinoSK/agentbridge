@@ -90,6 +90,9 @@ class ThinkingChipComponent(
         repaint()
     }
 
+    /** True while the chip's thinking block is still streaming. */
+    val isActive: Boolean get() = active
+
     fun collapseWhenReady(action: () -> Unit) {
         if (hovered) {
             pendingCollapseAction = action

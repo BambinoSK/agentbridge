@@ -14,6 +14,7 @@ import com.github.catatafishen.agentbridge.services.ToolRegistry
 import com.github.catatafishen.agentbridge.settings.McpServerSettings
 import com.github.catatafishen.agentbridge.ui.renderers.ToolRenderers
 import com.intellij.icons.AllIcons
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -62,6 +63,57 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
 
     /** Invoked when the user clicks the ↓ button on a pending nudge bubble. */
     var onCancelNudge: ((id: String) -> Unit)? = null
+
+    /**
+     * Whether thinking (reasoning) content is rendered as chip + bubble in the chat.
+     * Read once at construction from the project preference [PREF_SHOW_THINKING]
+     * (default on) and updated through [setThinkingDisplayEnabled], which persists
+     * the new value and applies it to already-rendered strips.
+     */
+    @Volatile
+    var thinkingDisplayEnabled: Boolean = PropertiesComponent.getInstance(project)
+        .getBoolean(PREF_SHOW_THINKING, true)
+        private set
+
+    /**
+     * Toggles the thinking display at runtime. Hiding collapses every visible thought
+     * bubble immediately, including those of earlier turns and sub-agents; the
+     * Thinking…/Thought chips stay mounted so the user can still see (and click open)
+     * what the agent thought. Re-showing expands only the bubble of the turn that is
+     * still streaming (even if the user had collapsed it by hand); bubbles of finished
+     * turns and sub-agents stay collapsed until the user opens them.
+     */
+    fun setThinkingDisplayEnabled(enabled: Boolean) {
+        if (thinkingDisplayEnabled == enabled) return
+        thinkingDisplayEnabled = enabled
+        PropertiesComponent.getInstance(project).setValue(PREF_SHOW_THINKING, enabled, true)
+        applyThinkingDisplay()
+    }
+
+    private fun applyThinkingDisplay() {
+        if (thinkingDisplayEnabled) {
+            val turn = currentTurn
+            if (turn?.thinkingChip?.isActive == true && turn.thinkingPane != null) {
+                turn.chipStrip.showThinkingBubble()
+            }
+        } else {
+            forEachChipStrip { it.hideThinkingBubble() }
+        }
+        component.revalidate()
+        component.repaint()
+        if (autoScrollEnabled) scrollToBottom()
+    }
+
+    /** Runs [action] on every [ChipStripPanel] currently mounted in the chat. */
+    private fun forEachChipStrip(action: (ChipStripPanel) -> Unit) {
+        fun walk(c: Container) {
+            for (child in c.components) {
+                if (child is ChipStripPanel) action(child)
+                (child as? Container)?.let { walk(it) }
+            }
+        }
+        walk(contentPanel)
+    }
 
     /** Invoked when the user clicks the ↓ button on a queued message bubble to restore it to the input. */
     var onRestoreQueuedMessage: ((id: String, text: String) -> Unit)? = null
@@ -888,7 +940,10 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
             // when hidden because BoxLayout skips invisible components entirely.
             contentWrapper.border = JBUI.Borders.emptyTop(JBUI.scale(4))
             turn.chipStrip.setThinkingBubble(contentWrapper)
-            turn.chipStrip.showThinkingBubble()
+            // The chip always mounts (the user keeps seeing that the agent is thinking);
+            // the display toggle only controls whether the bubble auto-expands while
+            // streaming. The pane still receives the text so it is complete when peeked.
+            if (thinkingDisplayEnabled) turn.chipStrip.showThinkingBubble()
 
             val chip = ThinkingChipComponent(active = true) {
                 turn.chipStrip.toggleThinkingBubble()
@@ -2247,6 +2302,14 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
 
     companion object {
         private const val ROW_SPACING = 8
+
+        /**
+         * Project-level preference key controlling whether thinking (reasoning) content
+         * is rendered in the chat. The entry store still records thinking in the DB either
+         * way, so nothing is lost when the display is off; toggling back on shows it again
+         * after a history reload.
+         */
+        const val PREF_SHOW_THINKING = "agentbridge.chat.showThinking"
 
         /** The "+Ns" extension buttons offered while the sleep tool is running. */
         private val SLEEP_EXTENSION_SECONDS = listOf(10, 30)
