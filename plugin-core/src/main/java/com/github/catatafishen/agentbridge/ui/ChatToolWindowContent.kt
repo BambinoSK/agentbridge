@@ -49,6 +49,14 @@ class ChatToolWindowContent(
         private const val PREF_SIDE_PANEL_OPEN = "agentbridge.sidePanelOpen"
         private const val PREF_INPUT_PANEL_HEIGHT = "agentbridge.inputPanelHeight"
 
+        /** Title-bar thinking toggle icons: plain bubble when shown, slashed bubble when hidden. */
+        private val THINKING_ON_ICON = com.intellij.openapi.util.IconLoader.getIcon(
+            "/icons/expui/thinkingBubble.svg", ChatToolWindowContent::class.java
+        )
+        private val THINKING_OFF_ICON = com.intellij.openapi.util.IconLoader.getIcon(
+            "/icons/expui/thinkingBubbleOff.svg", ChatToolWindowContent::class.java
+        )
+
         private val instances = java.util.concurrent.ConcurrentHashMap<Project, ChatToolWindowContent>()
 
         fun getInstance(project: Project): ChatToolWindowContent? = instances[project]
@@ -379,6 +387,7 @@ class ChatToolWindowContent(
         val actions = listOf(
             AutoScrollToggleAction(),
             FollowAgentFilesToggleAction(),
+            ThinkingDisplayToggleAction(),
             Separator.create(),
             StatisticsAction(),
             SettingsAction()
@@ -1951,6 +1960,33 @@ class ChatToolWindowContent(
                 userResumedWhileTyping = promptTextArea.document.textLength > 0
             }
             service.setPaused(!service.isPaused)
+        }
+    }
+
+    /**
+     * Title-bar toggle (next to Auto-Scroll and Follow Agent): shows or hides the agent's
+     * thinking (reasoning) chips and bubbles. Hidden thinking is still recorded in the
+     * conversation DB, so reloading history with the toggle back on restores it.
+     * Persisted per project.
+     */
+    private inner class ThinkingDisplayToggleAction : ToggleAction(
+        "Show Thinking",
+        "Show the agent's thinking bubbles in the chat (hidden thinking is still recorded in history)",
+        THINKING_ON_ICON
+    ) {
+        override fun getActionUpdateThread() = ActionUpdateThread.BGT
+
+        override fun update(e: AnActionEvent) {
+            super.update(e)
+            // The slashed bubble makes the off state readable without relying on the pressed highlight.
+            e.presentation.icon = if (isSelected(e)) THINKING_ON_ICON else THINKING_OFF_ICON
+        }
+
+        override fun isSelected(e: AnActionEvent): Boolean =
+            if (::broadcastPanel.isInitialized) broadcastPanel.nativePanel.thinkingDisplayEnabled else true
+
+        override fun setSelected(e: AnActionEvent, state: Boolean) {
+            if (::broadcastPanel.isInitialized) broadcastPanel.nativePanel.setThinkingDisplayEnabled(state)
         }
     }
 
