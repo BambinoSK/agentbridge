@@ -66,8 +66,24 @@ public final class OpenCodeClient extends AcpClient {
         "lsp", "websearch", "webfetch", "codesearch", "todoread", "todowrite"
     );
 
+    /**
+     * V2 permission actions to deny, in v2's own action names. V2 renamed or folded the v1
+     * tool names: {@code bash} became {@code shell}, the single {@code edit} action now covers
+     * the edit, write, and patch tools, and {@code ls}/{@code lsp}/{@code codesearch}/
+     * {@code todoread}/{@code todowrite} are not v2 actions at all. {@code question} is denied
+     * so agents ask the user through the plugin's {@code prompt_user} MCP tool instead of
+     * OpenCode's native question tool.
+     */
+    private static final List<String> V2_ACTIONS_TO_DENY = List.of(
+        "read", "edit", "glob", "grep", "shell", "websearch", "webfetch", "question"
+    );
+
     static List<String> nativeToolsToDeny() {
         return NATIVE_TOOLS_TO_DENY;
+    }
+
+    static List<String> v2ActionsToDeny() {
+        return V2_ACTIONS_TO_DENY;
     }
 
     /**
@@ -412,6 +428,11 @@ public final class OpenCodeClient extends AcpClient {
      * not risk breaking a v1 install that may reject unknown config keys — an unresolvable version
      * leaves the config exactly as it was before this change.</p>
      *
+     * <p>A confirmed v2 also gets the deny list as a v2 {@code permissions} ruleset with v2's
+     * action names. The v1-style {@code permission} map is deprecated in v2 and half of its tool
+     * names are not v2 actions, so the ruleset is what actually denies on v2; the map stays for
+     * v1 and unknown versions.</p>
+     *
      * <p>NOTE: We do NOT set {@code "default_agent"} here. OpenCode v1.4.10+ rejects
      * subagent slugs (like "build", "plan", "explore") as the {@code default_agent} value,
      * causing {@code session/new} to fail with
@@ -423,6 +444,7 @@ public final class OpenCodeClient extends AcpClient {
         JsonObject config = new JsonObject();
         config.add("permission", permissionDenyConfig());
         if (isDefinitelyOpenCodeV2(installedVersion)) {
+            config.add("permissions", v2PermissionDenyRules());
             JsonObject explore = inlineExploreAgent();
             if (explore != null) {
                 JsonObject agents = new JsonObject();
@@ -490,8 +512,10 @@ public final class OpenCodeClient extends AcpClient {
         //  - execute: the only reachability path for MCP tools in v2 Code Mode
         //  - the plugin's 18 read-only agentbridge_* tools allowed
         //  - the plugin's 7 mutating agentbridge_* tools denied (defense in depth)
-        //  - every mutating native action denied (edit covers write+patch; shell
-        //    beats the built-in explore's surviving shell allow)
+        //  - the mutating native actions denied under their v2 names (edit covers the
+        //    write and patch tools; shell beats the built-in explore's surviving shell
+        //    allow), plus question so the subagent cannot ask the user outside the
+        //    plugin's tools
         JsonArray permissions = new JsonArray();
         permissions.add(permissionRule("execute", "allow"));
         for (String tool : EXPLORE_ALLOWED_MCP_TOOLS) {
@@ -500,7 +524,7 @@ public final class OpenCodeClient extends AcpClient {
         for (String tool : EXPLORE_DENIED_MCP_TOOLS) {
             permissions.add(permissionRule(tool, "deny"));
         }
-        for (String tool : List.of("edit", "write", "patch", "bash", "shell")) {
+        for (String tool : List.of("edit", "shell", "question")) {
             permissions.add(permissionRule(tool, "deny"));
         }
         agent.add("permissions", permissions);
@@ -586,7 +610,9 @@ public final class OpenCodeClient extends AcpClient {
 
     /**
      * The permission object denying the mutating native tools, shared by the v2 init config
-     * and the v1 permission config so the two cannot drift.
+     * and the v1 permission config so the two cannot drift. Emitted for every version: v2
+     * still tolerates the deprecated field, and a confirmed v2 additionally gets
+     * {@link #v2PermissionDenyRules()} with the action names v2 actually evaluates.
      */
     private static JsonObject permissionDenyConfig() {
         JsonObject permission = new JsonObject();
@@ -594,6 +620,19 @@ public final class OpenCodeClient extends AcpClient {
             permission.addProperty(tool, "deny");
         }
         return permission;
+    }
+
+    /**
+     * The v2 {@code permissions} ruleset denying the native actions under their v2 names,
+     * so the deny list reaches v2 through its documented field instead of only the
+     * deprecated v1 {@code permission} map.
+     */
+    private static JsonArray v2PermissionDenyRules() {
+        JsonArray rules = new JsonArray();
+        for (String action : V2_ACTIONS_TO_DENY) {
+            rules.add(permissionRule(action, "deny"));
+        }
+        return rules;
     }
 
     /**

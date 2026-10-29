@@ -134,6 +134,25 @@ class OpenCodeClientStaticMethodsTest {
     }
 
     @Nested
+    @DisplayName("v2ActionsToDeny")
+    class V2ActionsToDeny {
+
+        @Test
+        @DisplayName("v2 action list has 8 entries with v2 names only")
+        void v2ActionNames() {
+            List<String> actions = OpenCodeClient.v2ActionsToDeny();
+
+            assertEquals(8, actions.size());
+            assertTrue(actions.contains("shell"), "v2 renamed bash to shell");
+            assertTrue(actions.contains("question"), "question is denied in favor of prompt_user");
+            // v1-only names must not leak into the v2 ruleset.
+            for (String v1Name : List.of("bash", "write", "patch", "ls", "lsp", "codesearch", "todoread", "todowrite")) {
+                assertFalse(actions.contains(v1Name), v1Name + " is not a v2 action");
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("builtInAgents")
     class BuiltInAgents {
 
