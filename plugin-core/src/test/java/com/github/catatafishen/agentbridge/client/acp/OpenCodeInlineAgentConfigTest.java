@@ -51,8 +51,9 @@ class OpenCodeInlineAgentConfigTest {
             "v2 permissions must be a Ruleset array, got: " + explore.get("permissions"));
         var rules = explore.getAsJsonArray("permissions");
         // Exact rule count: 1 execute + 18 read-only MCP allows + 7 mutating MCP denies
-        // + 5 mutating native denies. Pinning the exact number so a dropped category fails.
-        assertEquals(31, rules.size(), "expected the full rule list, got " + rules.size());
+        // + 3 native denies (edit, shell, question). Pinning the exact number so a
+        // dropped category fails.
+        assertEquals(29, rules.size(), "expected the full rule list, got " + rules.size());
 
         // First rule enables execute — the only reachability path for MCP tools
         // in v2 Code Mode.
@@ -73,9 +74,13 @@ class OpenCodeInlineAgentConfigTest {
             assertEquals("deny", effectOf(rules, mutating), mutating + " must be denied");
         }
         assertEquals("deny", effectOf(rules, "edit"));
-        assertEquals("deny", effectOf(rules, "write"));
-        assertEquals("deny", effectOf(rules, "bash"));
         assertEquals("deny", effectOf(rules, "shell"));
+        assertEquals("deny", effectOf(rules, "question"));
+        // write/patch/bash are not v2 actions (edit covers the write and patch tools,
+        // bash was renamed to shell), so they must not appear as rules.
+        assertNull(effectOf(rules, "write"));
+        assertNull(effectOf(rules, "patch"));
+        assertNull(effectOf(rules, "bash"));
         // Allowlist semantics: native read tools are intentionally NOT listed
         // (unlisted = not exposed to the subagent).
         assertNull(effectOf(rules, "read"));
@@ -102,6 +107,31 @@ class OpenCodeInlineAgentConfigTest {
             }
         }
         return effect;
+    }
+
+    @Test
+    void v2GetsTopLevelPermissionsRuleset() {
+        JsonObject config = configFor("2.0.27");
+        assertTrue(config.has("permissions"), "v2 must get the permissions ruleset");
+        assertTrue(config.get("permissions").isJsonArray(),
+            "v2 permissions must be a Ruleset array, got: " + config.get("permissions"));
+
+        var rules = config.getAsJsonArray("permissions");
+        assertEquals(OpenCodeClient.v2ActionsToDeny().size(), rules.size());
+        for (String action : OpenCodeClient.v2ActionsToDeny()) {
+            assertEquals("deny", effectOf(rules, action), action + " must be denied");
+        }
+        // question denied so agents ask through the plugin's prompt_user MCP tool.
+        assertEquals("deny", effectOf(rules, "question"));
+    }
+
+    @Test
+    void v1AndUnknownVersionsGetNoPermissionsRuleset() {
+        for (String version : new String[] {"1.19.0", null}) {
+            JsonObject config = configFor(version);
+            assertFalse(config.has("permissions"),
+                "only a confirmed v2 gets the permissions ruleset, version: " + version);
+        }
     }
 
     @Test
