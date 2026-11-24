@@ -33,10 +33,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * OpenCode ACP client.
@@ -402,6 +404,19 @@ public final class OpenCodeClient extends AcpClient {
     @Override
     protected boolean hasOpenBackgroundWork() {
         return childSessions.anyWorking();
+    }
+
+    /**
+     * Sub-agents outlive a cancelled turn in OpenCode, so Stop closes their sessions first ({@code session/close}
+     * interrupts a session without a turn of its own). Each one reports to the main session as it ends, and
+     * that report wakes the main session unless its turn is still running when the cancel interrupts it.
+     */
+    @Override
+    protected @NotNull CompletableFuture<Void> beforeCancel(@NotNull String sessionId) {
+        Set<String> closed = childSessions.workingSessions().stream()
+            .filter(this::closeSessionIfSupported)
+            .collect(Collectors.toSet());
+        return childSessions.whenFinished(closed);
     }
 
     /**

@@ -7,9 +7,12 @@ import com.intellij.openapi.diagnostic.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 /**
@@ -34,6 +37,10 @@ final class OpenCodeChildSessions {
     private static final Logger LOG = Logger.getInstance(OpenCodeChildSessions.class);
 
     private final Set<String> working = ConcurrentHashMap.newKeySet();
+    private final List<Waiter> waiters = new CopyOnWriteArrayList<>();
+
+    private record Waiter(Set<String> sessions, CompletableFuture<Void> finished) {
+    }
 
     /**
      * Reads one notification and records whether its sub-agent is working.
@@ -81,6 +88,7 @@ final class OpenCodeChildSessions {
         }
         if (state.isFinished()) {
             working.remove(childId);
+            releaseWaiters();
         } else {
             working.add(childId);
         }
@@ -92,9 +100,31 @@ final class OpenCodeChildSessions {
         return !working.isEmpty();
     }
 
+    /** The sessions of the sub-agents that have started and not yet finished. */
+    @NotNull Set<String> workingSessions() {
+        return Set.copyOf(working);
+    }
+
+    /** Completes once none of {@code sessions} is working any more. */
+    @NotNull CompletableFuture<Void> whenFinished(@NotNull Set<String> sessions) {
+        Waiter waiter = new Waiter(Set.copyOf(sessions), new CompletableFuture<>());
+        waiters.add(waiter);
+        releaseWaiters();
+        return waiter.finished();
+    }
+
+    private void releaseWaiters() {
+        for (Waiter waiter : waiters) {
+            if (waiter.sessions().stream().noneMatch(working::contains) && waiters.remove(waiter)) {
+                waiter.finished().complete(null);
+            }
+        }
+    }
+
     /** Forgets every sub-agent, when the client leaves the session they belong to. */
     void clear() {
         working.clear();
+        releaseWaiters();
     }
 
     private static @Nullable String errorMessage(@NotNull JsonObject params) {

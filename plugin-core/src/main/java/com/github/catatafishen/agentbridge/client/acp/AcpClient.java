@@ -101,6 +101,7 @@ public abstract class AcpClient extends AbstractClient {
     private static final long SESSION_TIMEOUT_SECONDS = 30;
     private static final long AUTH_TIMEOUT_SECONDS = 30;
     private static final long STOP_TIMEOUT_SECONDS = 5;
+    private static final long MAX_CANCEL_DELAY_SECONDS = 2;
 
     private static final int PROTOCOL_VERSION = 1;
     private static final String CLIENT_NAME = "AgentBridge";
@@ -174,6 +175,9 @@ public abstract class AcpClient extends AbstractClient {
     private @Nullable String currentAgentSlug = null;
     private final List<AbstractClient.AgentConfigOption> availableConfigOptions = new CopyOnWriteArrayList<>();
     private final AtomicReference<Consumer<SessionUpdate>> updateConsumer = new AtomicReference<>();
+
+    /** Completes once the last {@code session/cancel}, which {@link #beforeCancel} may hold back, is sent. */
+    private volatile CompletableFuture<Void> pendingCancel = CompletableFuture.completedFuture(null);
 
     /**
      * True after a turn has completed but ACP messages are still arriving (background sub-agent).
@@ -467,7 +471,7 @@ public abstract class AcpClient extends AbstractClient {
 
     @Override
     public final void stop() {
-        sendSessionCloseIfSupported();
+        closeSessionIfSupported(currentSessionId);
         try {
             transport.stop();
         } catch (Exception e) {
@@ -519,19 +523,20 @@ public abstract class AcpClient extends AbstractClient {
     }
 
     /**
-     * Sends {@code session/close} to the agent before stopping, if the agent advertised the
+     * Sends {@code session/close} for {@code sessionId}, if the agent advertised the
      * {@code sessionCapabilities.close} capability. Fire-and-forget — does not block the calling
-     * thread (which may be the EDT via disconnectFromAgent).
+     * thread (which may be the EDT via disconnectFromAgent or Stop).
+     *
+     * @return whether {@code session/close} was sent
      */
-    private void sendSessionCloseIfSupported() {
-        String sessionId = currentSessionId;
-        if (sessionId == null) return;
+    protected final boolean closeSessionIfSupported(@Nullable String sessionId) {
+        if (sessionId == null) return false;
         InitializeResponse caps = capabilities;
         if (caps == null
             || caps.agentCapabilities() == null
             || caps.agentCapabilities().sessionCapabilities() == null
             || !caps.agentCapabilities().sessionCapabilities().supportsClose()) {
-            return;
+            return false;
         }
         JsonObject params = new JsonObject();
         params.addProperty(KEY_SESSION_ID, sessionId);
@@ -542,9 +547,10 @@ public abstract class AcpClient extends AbstractClient {
                 if (ex == null) {
                     LOG.info(name + ": session/close sent for " + sessionId);
                 } else {
-                    LOG.debug(name + ": session/close did not complete cleanly (process will be killed): " + ex.getMessage());
+                    LOG.debug(name + ": session/close did not complete cleanly for " + sessionId + ": " + ex.getMessage());
                 }
             });
+        return true;
     }
 
     @Override
@@ -1053,14 +1059,38 @@ public abstract class AcpClient extends AbstractClient {
         // requests with the "cancelled" outcome before sending session/cancel.
         cancelPendingPermissionRequests();
 
-        JsonObject params = new JsonObject();
-        params.addProperty(KEY_SESSION_ID, sessionId);
-        transport.sendNotification("session/cancel", params);
+        pendingCancel = beforeCancel(sessionId)
+            .completeOnTimeout(null, MAX_CANCEL_DELAY_SECONDS, TimeUnit.SECONDS)
+            .handle((ignored, error) -> {
+                JsonObject params = new JsonObject();
+                params.addProperty(KEY_SESSION_ID, sessionId);
+                transport.sendNotification("session/cancel", params);
+                return null;
+            });
         // Do NOT clear currentSessionId here. Per ACP spec, session/cancel
         // cancels the *current turn*, not the session — the session remains
         // alive and the next prompt must reuse it so the agent keeps the
         // conversation context. Use dropCurrentSession() when you actually
         // want a fresh session.
+    }
+
+    /**
+     * Stops work that cancelling the turn of {@code sessionId} leaves running, such as sub-agents in
+     * sessions of their own. {@code session/cancel} is sent once the returned future completes, or after
+     * {@value #MAX_CANCEL_DELAY_SECONDS} seconds. Must not block: Stop calls it on the EDT.
+     * Default: nothing to stop.
+     */
+    protected @NotNull CompletableFuture<Void> beforeCancel(@NotNull String sessionId) {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /** A {@code session/cancel} that {@link #beforeCancel} holds back must reach the agent before the next prompt. */
+    private void awaitPendingCancel() throws InterruptedException {
+        try {
+            pendingCancel.get(MAX_CANCEL_DELAY_SECONDS + 1, TimeUnit.SECONDS);
+        } catch (ExecutionException | TimeoutException e) {
+            LOG.warn(displayName() + ": session/cancel before this prompt failed", e);
+        }
     }
 
     // ── Session resumption helpers ───────────────────────────────────────────
@@ -1106,6 +1136,7 @@ public abstract class AcpClient extends AbstractClient {
     public final PromptResponse sendPrompt(PromptRequest request,
                                            Consumer<SessionUpdate> onUpdate) throws ClientPromptException {
         try {
+            awaitPendingCancel();
             long turnStartNanos = System.nanoTime();
             lastActivityNanos = turnStartNanos;
             // Reset post-turn state from the previous turn before starting a new one.

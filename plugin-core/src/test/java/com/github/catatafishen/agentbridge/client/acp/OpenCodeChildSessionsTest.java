@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,6 +66,42 @@ class OpenCodeChildSessionsTest {
         sessions.accept(status("running"), ROOT, parser);
         sessions.accept(status("failed"), ROOT, parser);
         assertFalse(sessions.anyWorking());
+    }
+
+    @Test
+    @DisplayName("the working sessions are those of sub-agents that started and have not finished")
+    void listsTheWorkingSessions() {
+        assertEquals(Set.of(), sessions.workingSessions());
+
+        sessions.accept(status("running"), ROOT, parser);
+        JsonObject other = status("created");
+        other.addProperty("childSessionId", "ses_other_child");
+        sessions.accept(other, ROOT, parser);
+        assertEquals(Set.of(CHILD, "ses_other_child"), sessions.workingSessions());
+
+        sessions.accept(status("completed"), ROOT, parser);
+        assertEquals(Set.of("ses_other_child"), sessions.workingSessions());
+    }
+
+    @Test
+    @DisplayName("waiting for sub-agents ends once none of them works, at once when none does")
+    void waitsForSubAgentsToFinish() {
+        assertTrue(sessions.whenFinished(Set.of()).isDone());
+        assertTrue(sessions.whenFinished(Set.of(CHILD)).isDone(), "a sub-agent that never started is not working");
+
+        sessions.accept(status("running"), ROOT, parser);
+        JsonObject other = status("running");
+        other.addProperty("childSessionId", "ses_other_child");
+        sessions.accept(other, ROOT, parser);
+        var both = sessions.whenFinished(Set.of(CHILD, "ses_other_child"));
+        var onlyChild = sessions.whenFinished(Set.of(CHILD));
+
+        sessions.accept(status("interrupted"), ROOT, parser);
+        assertTrue(onlyChild.isDone());
+        assertFalse(both.isDone());
+
+        sessions.clear();
+        assertTrue(both.isDone(), "leaving the session ends the wait");
     }
 
     @Test
