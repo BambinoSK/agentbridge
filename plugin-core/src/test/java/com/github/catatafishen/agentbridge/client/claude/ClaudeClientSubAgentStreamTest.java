@@ -139,4 +139,9 @@ class ClaudeClientSubAgentStreamTest {
             .findFirst().orElseThrow();
         assertEquals("", agentEnd.result());
     }
+
+    @Test
+    void mainStreamIsDeclaredFreeOfSubAgentUpdates() throws Exception {
+        assertTrue(ClaudeCliTestFixtures.clientPrinting("").streamsSubAgentUpdatesSeparately());
+    }
 }

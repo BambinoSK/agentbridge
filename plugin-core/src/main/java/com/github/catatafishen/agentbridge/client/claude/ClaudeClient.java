@@ -915,6 +915,12 @@ public final class ClaudeClient extends AbstractClaudeClient {
         return ClaudeSubAgentRouter.backgroundAgentId(subAgentResult);
     }
 
+    /** {@link ClaudeSubAgentRouter} wraps every event of a sub-agent. */
+    @Override
+    public boolean streamsSubAgentUpdatesSeparately() {
+        return true;
+    }
+
     private static final String FIELD_MESSAGE = "message";
     private static final String FIELD_TOOL_USE_ID = "tool_use_id";
     private static final String FIELD_SUBTYPE = "subtype";

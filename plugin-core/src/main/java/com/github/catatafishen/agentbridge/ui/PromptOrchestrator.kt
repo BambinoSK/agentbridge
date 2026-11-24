@@ -1092,7 +1092,7 @@ class PromptOrchestrator(
                 acpRegisterToolCall(toolCallId, acpName, title, arguments, kind, ToolCallRecord.RoutingType.SUB_AGENT)
             subAgentSessions.started(record.recordId, reportedDescription)
             consolePanel().addSubAgentEntry(record.recordId, agentType, description, toolCall.subAgentPrompt())
-        } else if (activeSubAgentId != null) {
+        } else if (activeSubAgentId != null && !agentManager.client.streamsSubAgentUpdatesSeparately()) {
             turnToolCallCount++
             callbacks.onTimerIncrementToolCalls()
             val parentRecord = ToolCallTracker.getInstance(project).findByAcpId(activeSubAgentId!!)

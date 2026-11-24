@@ -435,6 +435,16 @@ public abstract class AbstractClient {
     }
 
     /**
+     * Whether every update of a sub-agent arrives as a
+     * {@link com.github.catatafishen.agentbridge.model.SessionUpdate.ChildSessionUpdate}, so a tool call in the
+     * main stream is always the main agent's own, even while a sub-agent runs.
+     * Default: false, for clients that send a running sub-agent's tool calls in the main stream.
+     */
+    public boolean streamsSubAgentUpdatesSeparately() {
+        return false;
+    }
+
+    /**
      * Registers a one-shot callback that fires the first time an ACP message arrives
      * after the parent turn has ended (post-turn background mode).
      * Default: no-op for non-ACP clients.

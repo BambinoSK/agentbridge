@@ -815,6 +815,12 @@ public final class OpenCodeClient extends AcpClient {
         return OpenCodeBackgroundSubAgent.sessionIdOfLaunch(subAgentResult);
     }
 
+    /** OpenCode 2.0 and later send a sub-agent's updates as {@code opencode/session/child_update}. */
+    @Override
+    public boolean streamsSubAgentUpdatesSeparately() {
+        return isOpenCodeV2OrLater();
+    }
+
     @Override
     @Nullable
     protected JsonObject parseToolCallArguments(@NotNull JsonObject params) {
