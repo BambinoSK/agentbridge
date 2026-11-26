@@ -725,12 +725,9 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
 
     private fun scrollToBottom() {
         SwingUtilities.invokeLater {
-            // Auto-scroll may have been turned off since this was queued (a prompt-rail jump while a reply
-            // streams); scrolling now would undo that jump.
+            // Auto-scroll can be turned off after this was queued, e.g. by a prompt-rail jump.
             if (!autoScrollEnabled) return@invokeLater
-            // The user is holding the scrollbar thumb. A drag reports only "adjusting" changes, which the
-            // scroll listener ignores, so auto-scroll stays on until the release; scrolling now would pull the
-            // thumb back to the bottom mid-drag. The release decides whether auto-scroll stays on.
+            // While the user drags the thumb the scroll listener sees only "adjusting" changes; the release decides.
             if (scrollPane.verticalScrollBar.valueIsAdjusting) return@invokeLater
             // Do NOT call scrollPane.validate() here. A synchronous validate() walks every
             // NativeMarkdownPane in the chat history and triggers a full Swing HTML layout

@@ -35,16 +35,8 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * A narrow column between the chat and its scrollbar with one dot for each prompt the user sent. Hovering a dot shows the start of
- * the prompt; clicking it scrolls the chat to that prompt. The dot of the prompt being read is drawn in the user
- * bubble color.
- *
- * <p>Only real prompts are registered: permission decisions and ask-user answers look like user bubbles but are
- * answers within a turn, and they are not saved, so they would vanish from the rail after a restart.
- *
- * <p>The rail is also the chat's registry of prompt rows, so the panel can scroll to a prompt while the rail is
- * hidden. It hides itself while fewer than two prompts are loaded and when the user turns it off.
- * The geometry lives in {@link PromptRailLayout}.
+ * A column between the chat and its scrollbar with a dot for each prompt: hover previews it, click scrolls to it.
+ * It is also the chat's registry of prompt rows; permission decisions and ask-user answers are not prompts.
  */
 public final class PromptRail extends JComponent {
 
@@ -120,9 +112,7 @@ public final class PromptRail extends JComponent {
     }
 
     /**
-     * Puts the rail in the chat's scroll pane, between the chat and the vertical scrollbar, where a scrollbar
-     * marker belongs. The scroll pane's viewport border keeps a strip free for it beside the scrollbar, and the
-     * layout places the rail in that strip.
+     * Puts the rail in the strip that the viewport border keeps free between the chat and the scrollbar.
      *
      * @param scrollPane the scroll pane whose viewport this rail was created with
      */

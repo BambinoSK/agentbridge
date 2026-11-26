@@ -2,7 +2,6 @@ package com.github.catatafishen.agentbridge.ui;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -69,8 +68,8 @@ public final class PromptRailLayout {
      *
      * @param railShown        whether the rail is visible; a hidden rail needs no space
      * @param railWidth        the width of the rail
-     * @param barOverlaysChat  whether the scrollbar is drawn over the chat instead of beside it; then the strip
-     *                         must also cover the scrollbar, or the scrollbar would hide the rail
+     * @param barOverlaysChat  whether the scrollbar is drawn over the chat instead of beside it; the strip then
+     *                         also covers the scrollbar
      * @param barWidth         the width of the scrollbar
      */
     public static int reservedWidth(boolean railShown, int railWidth, boolean barOverlaysChat, int barWidth) {
@@ -136,18 +135,9 @@ public final class PromptRailLayout {
      * {@code maxChars} in all. Ends with an ellipsis when anything was left out.
      */
     public static @NotNull String preview(@NotNull String text, int maxLines, int maxChars) {
-        List<String> lines = new ArrayList<>();
-        boolean cut = false;
-        for (String line : text.strip().split("\\R")) {
-            String trimmed = line.strip();
-            if (trimmed.isEmpty()) continue;
-            if (lines.size() == maxLines) {
-                cut = true;
-                break;
-            }
-            lines.add(trimmed);
-        }
-        String joined = String.join("\n", lines);
+        List<String> lines = text.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        boolean cut = lines.size() > maxLines;
+        String joined = String.join("\n", lines.subList(0, Math.min(maxLines, lines.size())));
         if (joined.length() > maxChars) {
             int end = Math.max(0, maxChars - 1);
             // Do not split a surrogate pair (an emoji, say) at the cut.
