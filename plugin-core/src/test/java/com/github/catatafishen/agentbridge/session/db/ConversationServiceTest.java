@@ -389,6 +389,60 @@ class ConversationServiceTest {
             "session name should be from the first prompt, not overwritten");
     }
 
+    // ── updateCurrentSessionTitle ─────────────────────────────────────────
+
+    private String nameOf(ConversationService service, String sessionId) {
+        return service.listSessions().stream()
+            .filter(s -> s.id().equals(sessionId))
+            .findFirst().orElseThrow()
+            .name();
+    }
+
+    @Test
+    @DisplayName("a title from the agent replaces the first-prompt name of the current session")
+    void agentTitleReplacesFirstPromptName() throws Exception {
+        ConversationService service = newService();
+        service.appendEntries(tempDir.toString(),
+            List.of(new EntryData.Prompt("Read pom.xml and tell me", "2026-11-26T10:00:00Z", null, "p1", "p1")));
+
+        service.updateCurrentSessionTitle(tempDir.toString(), "Reading pom.xml to identify project")
+            .get(2, TimeUnit.SECONDS);
+
+        assertEquals("Reading pom.xml to identify project",
+            nameOf(service, service.getCurrentSessionId(tempDir.toString())));
+    }
+
+    @Test
+    @DisplayName("a later prompt keeps the title from the agent")
+    void agentTitleIsKeptAfterNextPrompt() throws Exception {
+        ConversationService service = newService();
+        service.appendEntries(tempDir.toString(),
+            List.of(new EntryData.Prompt("First prompt", "2026-11-26T10:00:00Z", null, "p1", "p1")));
+        service.updateCurrentSessionTitle(tempDir.toString(), "Agent title").get(2, TimeUnit.SECONDS);
+
+        service.appendEntries(tempDir.toString(),
+            List.of(new EntryData.Prompt("Second prompt", "2026-11-26T10:01:00Z", null, "p2", "p2")));
+
+        assertEquals("Agent title", nameOf(service, service.getCurrentSessionId(tempDir.toString())));
+    }
+
+    @Test
+    @DisplayName("a title names only the session that is current, not an earlier one")
+    void agentTitleNamesOnlyTheCurrentSession() throws Exception {
+        ConversationService service = newService();
+        service.appendEntries(tempDir.toString(),
+            List.of(new EntryData.Prompt("Old session", "2026-11-26T10:00:00Z", null, "p1", "p1")));
+        String oldId = service.getCurrentSessionId(tempDir.toString());
+        service.resetCurrentSessionId(tempDir.toString());
+        service.appendEntries(tempDir.toString(),
+            List.of(new EntryData.Prompt("New session", "2026-11-26T11:00:00Z", null, "p2", "p2")));
+
+        service.updateCurrentSessionTitle(tempDir.toString(), "New title").get(2, TimeUnit.SECONDS);
+
+        assertEquals("New title", nameOf(service, service.getCurrentSessionId(tempDir.toString())));
+        assertEquals("Old session", nameOf(service, oldId));
+    }
+
     // ── branchCurrentSession ──────────────────────────────────────────────
 
     @Test

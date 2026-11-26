@@ -2252,9 +2252,8 @@ public abstract class AcpClient extends AbstractClient {
         }
         if (update instanceof SessionUpdate.SessionInfoChanged(var title)
             && title != null && !title.isBlank() && currentSessionId != null && !isEphemeral()) {
-            String sessionId = currentSessionId;
             AppExecutorUtil.getAppExecutorService().execute(() ->
-                ConversationService.getInstance(project).updateSessionTitle(sessionId, title));
+                ConversationService.getInstance(project).updateCurrentSessionTitle(project.getBasePath(), title));
         }
 
         Consumer<SessionUpdate> consumer = updateConsumer.get();

@@ -308,10 +308,14 @@ public final class ConversationService implements Disposable {
     }
 
     /**
-     * Updates the session title after any queued insert.
+     * Names the current session {@code title}, after any queued insert. The agent's own session id is not a
+     * session id of this store, so the title goes to the session that is current when it arrives.
+     *
+     * @return a future that completes once the title is written
      */
-    public void updateSessionTitle(@NotNull String sessionId, @NotNull String title) {
-        enqueueWrite("update session title", () -> {
+    public @NotNull CompletableFuture<Void> updateCurrentSessionTitle(@Nullable String basePath, @NotNull String title) {
+        String sessionId = getCurrentSessionId(basePath);
+        return enqueueWrite("update session title", () -> {
             ConversationWriter writer = getOrCreateWriter();
             if (writer != null) {
                 writer.updateSessionTitle(sessionId, title);
