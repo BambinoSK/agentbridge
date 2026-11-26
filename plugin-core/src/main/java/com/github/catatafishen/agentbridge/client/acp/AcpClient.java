@@ -79,6 +79,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -1132,7 +1133,7 @@ public abstract class AcpClient extends AbstractClient {
             }
             PromptResponse recovery = tryRecoverPromptException(e);
             if (recovery != null) return recovery;
-            String rootMsg = extractRootCauseMessage(e);
+            String rootMsg = describePromptFailure(e, this::describePromptError);
             String msg = rootMsg != null
                 ? ERR_PROMPT_FAILED_PREFIX + displayName() + ": " + rootMsg
                 : ERR_PROMPT_FAILED_PREFIX + displayName();
@@ -1262,6 +1263,28 @@ public abstract class AcpClient extends AbstractClient {
      */
     protected @Nullable PromptResponse tryRecoverPromptException(Exception cause) {
         return null;
+    }
+
+    /**
+     * Describes a {@code session/prompt} error response for the user. Override for an agent whose error
+     * {@code data} has a known shape; {@code null} keeps the agent's message followed by the raw {@code data}.
+     */
+    protected @Nullable String describePromptError(@NotNull JsonRpcException error) {
+        return null;
+    }
+
+    /**
+     * Describes the first {@link JsonRpcException} in the cause chain with {@code describe}, or falls back to
+     * {@link #extractRootCauseMessage}.
+     */
+    static @Nullable String describePromptFailure(@NotNull Throwable e,
+                                                  @NotNull Function<JsonRpcException, String> describe) {
+        Throwable current = e;
+        while (current != null && !(current instanceof JsonRpcException)) {
+            current = current.getCause();
+        }
+        String described = current instanceof JsonRpcException rpcError ? describe.apply(rpcError) : null;
+        return described != null ? described : extractRootCauseMessage(e);
     }
 
     /**

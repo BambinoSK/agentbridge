@@ -1,6 +1,8 @@
 package com.github.catatafishen.agentbridge.acp.transport;
 
 import com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcException;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -73,6 +75,48 @@ class JsonRpcExceptionTest {
             JsonRpcException ex = new JsonRpcException(-32000, "Server error");
 
             assertInstanceOf(Exception.class, ex);
+        }
+    }
+
+    @Nested
+    @DisplayName("data")
+    class DataTest {
+
+        @Test
+        @DisplayName("keeps the agent message and data apart from the composed message")
+        void keepsAgentMessageAndData() {
+            JsonElement data = JsonParser.parseString("{\"errorName\":\"provider.rate-limit\",\"status\":429}");
+            JsonRpcException ex = new JsonRpcException(-32603, "Rate limit reached", data);
+
+            assertEquals("Rate limit reached", ex.getAgentMessage());
+            assertSame(data, ex.getData());
+            assertEquals("Rate limit reached: {\"errorName\":\"provider.rate-limit\",\"status\":429}", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("details in object data replace the raw JSON in the message")
+        void detailsReplaceRawJson() {
+            JsonRpcException ex = new JsonRpcException(-32603, "Internal error",
+                JsonParser.parseString("{\"details\":\"stack\"}"));
+
+            assertEquals("Internal error: stack", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("array data is appended as JSON")
+        void arrayDataAppendedAsJson() {
+            JsonRpcException ex = new JsonRpcException(-32603, "Internal error", JsonParser.parseString("[1,2]"));
+
+            assertEquals("Internal error: [1,2]", ex.getMessage());
+        }
+
+        @Test
+        @DisplayName("the two-argument constructor has no data")
+        void twoArgumentConstructorHasNoData() {
+            JsonRpcException ex = new JsonRpcException(-32603, "Internal error");
+
+            assertNull(ex.getData());
+            assertEquals("Internal error", ex.getAgentMessage());
         }
     }
 }

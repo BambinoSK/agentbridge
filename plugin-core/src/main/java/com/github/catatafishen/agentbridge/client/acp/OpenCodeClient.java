@@ -3,6 +3,8 @@ package com.github.catatafishen.agentbridge.client.acp;
 import com.github.catatafishen.agentbridge.acp.protocol.InitializeRequest;
 import com.github.catatafishen.agentbridge.bridge.EntryData;
 import com.github.catatafishen.agentbridge.client.AbstractClient;
+import com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcErrorCodes;
+import com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcException;
 import com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcTransport;
 import com.github.catatafishen.agentbridge.model.SessionUpdate;
 import com.github.catatafishen.agentbridge.services.AgentProfile;
@@ -26,6 +28,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -34,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -253,7 +258,7 @@ public final class OpenCodeClient extends AcpClient {
      */
     static List<Path> globalOpenCodeAgentDirs() {
         Path home = Path.of(System.getProperty("user.home"));
-        return List.of(home.resolve(".opencode/agents"), home.resolve(".config/opencode/agents"));
+        return List.of(home.resolve(PROJECT_AGENTS_DIR), home.resolve(".config/opencode/agents"));
     }
 
     /**
@@ -402,6 +407,11 @@ public final class OpenCodeClient extends AcpClient {
     @Override
     protected boolean hasOpenBackgroundWork() {
         return childSessions.anyWorking();
+    }
+
+    @Override
+    protected @Nullable String describePromptError(@NotNull JsonRpcException error) {
+        return OpenCodePromptError.describe(error.getAgentMessage(), error.getData(), Instant.now(), ZoneId.systemDefault());
     }
 
     /**
@@ -948,18 +958,20 @@ public final class OpenCodeClient extends AcpClient {
                 params.addProperty("value", modelId);
                 transport.sendRequest("session/set_config_option", params)
                     .whenComplete(this::applyConfigOptionEcho)
-                    .get(SET_CONFIG_OPTION_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                if (e.getCause() instanceof com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcException jre
-                    && jre.getCode() == com.github.catatafishen.agentbridge.client.acp.transport.JsonRpcErrorCodes.METHOD_NOT_FOUND) {
+                    .get(SET_CONFIG_OPTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof JsonRpcException jre
+                    && jre.getCode() == JsonRpcErrorCodes.METHOD_NOT_FOUND) {
                     // Version misdetection or unexpected build: retry the legacy method.
-                    com.intellij.openapi.diagnostic.Logger.getInstance(OpenCodeClient.class).warn(displayName() + ": session/set_config_option(model) not found (OpenCode " + openCodeVersion() + "), retrying via session/set_model");
+                    Logger.getInstance(OpenCodeClient.class).warn(displayName() + ": session/set_config_option(model) not found (OpenCode " + openCodeVersion() + "), retrying via session/set_model");
                     super.sendSetModel(sessionId, modelId);
                 } else {
                     throw new RuntimeException(displayName() + ": failed to set model " + modelId + " via session/set_config_option", e);
                 }
-            } catch (java.util.concurrent.TimeoutException | InterruptedException e) {
-                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            } catch (TimeoutException e) {
+                throw new RuntimeException(displayName() + ": failed to set model " + modelId + " via session/set_config_option", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 throw new RuntimeException(displayName() + ": failed to set model " + modelId + " via session/set_config_option", e);
             }
         } else {
@@ -1001,7 +1013,7 @@ public final class OpenCodeClient extends AcpClient {
 
     static void addMcpServerConfig(int mcpPort, String endpointPath, JsonObject params) {
         JsonObject server = new JsonObject();
-        server.addProperty("name", "agentbridge");
+        server.addProperty("name", MCP_SERVER_NAME);
         server.addProperty("type", "http");
         server.addProperty("url", "http://127.0.0.1:" + mcpPort + endpointPath);
         server.add("headers", new JsonArray());
