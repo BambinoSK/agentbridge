@@ -3,11 +3,13 @@ package com.github.catatafishen.agentbridge.settings
 import com.github.catatafishen.agentbridge.ui.NativeChatPanel
 import com.github.catatafishen.agentbridge.ui.ThemeColor
 import com.github.catatafishen.agentbridge.ui.side.ToolCallsWebPanel
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.TitledSeparator
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.dsl.builder.AlignX
@@ -24,7 +26,7 @@ import javax.swing.JComponent
 
 /**
  * Chat bubble appearance: user accent color, default agent accent color, and bubble
- * layout style (modern / minimal / accessible).
+ * layout style (modern / minimal / accessible); and the prompt navigator beside the chat.
  *
  * Lives under UI/UX because these settings affect chat presentation, not any
  * MCP-specific behavior. The default agent color is used for every agent unless
@@ -39,6 +41,7 @@ class ChatAppearanceConfigurable(private val project: Project) :
     private var userColorCombo: ThemeColorComboBox? = null
     private var agentColorCombo: ThemeColorComboBox? = null
     private var styleCombo: ComboBox<String>? = null
+    private var promptRailCheckBox: JBCheckBox? = null
 
     override fun createPanel() = panel {
         row {
@@ -90,6 +93,16 @@ class ChatAppearanceConfigurable(private val project: Project) :
         }
         root.add(labeledRow("Bubble style", styleCombo!!))
 
+        root.add(TitledSeparator("Navigation").apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(12, 0, 4, 0)
+        })
+        promptRailCheckBox = JBCheckBox(
+            "Show prompt navigator (a dot for each prompt beside the chat)",
+            isPromptRailEnabled()
+        ).apply { alignmentX = Component.LEFT_ALIGNMENT }
+        root.add(promptRailCheckBox)
+
         root.add(Box.createVerticalGlue())
         return root
     }
@@ -118,8 +131,12 @@ class ChatAppearanceConfigurable(private val project: Project) :
         val settings = McpServerSettings.getInstance(project)
         return userColorCombo != null && keyOf(userColorCombo!!) != settings.userBubbleColorKey ||
             agentColorCombo != null && keyOf(agentColorCombo!!) != settings.agentBubbleColorKey ||
-            styleCombo != null && styleCombo!!.selectedItem != settings.bubbleStyle
+            styleCombo != null && styleCombo!!.selectedItem != settings.bubbleStyle ||
+            promptRailCheckBox != null && promptRailCheckBox!!.isSelected != isPromptRailEnabled()
     }
+
+    private fun isPromptRailEnabled(): Boolean =
+        PropertiesComponent.getInstance(project).getBoolean(NativeChatPanel.PREF_SHOW_PROMPT_RAIL, true)
 
     private fun applySettings() {
         val settings = McpServerSettings.getInstance(project)
@@ -127,6 +144,15 @@ class ChatAppearanceConfigurable(private val project: Project) :
         agentColorCombo?.let { settings.agentBubbleColorKey = keyOf(it) }
         styleCombo?.let { settings.bubbleStyle = it.selectedItem as? String ?: "modern" }
         NativeChatPanel.getInstance(project)?.refreshBubbleColors()
+        promptRailCheckBox?.let { box ->
+            val chat = NativeChatPanel.getInstance(project)
+            if (chat != null) {
+                chat.setPromptRailEnabled(box.isSelected)
+            } else {
+                PropertiesComponent.getInstance(project)
+                    .setValue(NativeChatPanel.PREF_SHOW_PROMPT_RAIL, box.isSelected, true)
+            }
+        }
         ToolCallsWebPanel.refreshForProject(project)
     }
 
@@ -135,6 +161,7 @@ class ChatAppearanceConfigurable(private val project: Project) :
         userColorCombo?.selectedThemeColor = ThemeColor.fromKey(settings.userBubbleColorKey)
         agentColorCombo?.selectedThemeColor = ThemeColor.fromKey(settings.agentBubbleColorKey)
         styleCombo?.selectedItem = settings.bubbleStyle
+        promptRailCheckBox?.isSelected = isPromptRailEnabled()
     }
 
     override fun disposeUIResources() {
@@ -142,5 +169,6 @@ class ChatAppearanceConfigurable(private val project: Project) :
         userColorCombo = null
         agentColorCombo = null
         styleCombo = null
+        promptRailCheckBox = null
     }
 }
