@@ -717,6 +717,10 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
             // Auto-scroll may have been turned off since this was queued (a prompt-rail jump while a reply
             // streams); scrolling now would undo that jump.
             if (!autoScrollEnabled) return@invokeLater
+            // The user is holding the scrollbar thumb. A drag reports only "adjusting" changes, which the
+            // scroll listener ignores, so auto-scroll stays on until the release; scrolling now would pull the
+            // thumb back to the bottom mid-drag. The release decides whether auto-scroll stays on.
+            if (scrollPane.verticalScrollBar.valueIsAdjusting) return@invokeLater
             // Do NOT call scrollPane.validate() here. A synchronous validate() walks every
             // NativeMarkdownPane in the chat history and triggers a full Swing HTML layout
             // (BasicTextUI$RootView.setSize + BoxView.updateLayoutArray) which is O(n²) in
