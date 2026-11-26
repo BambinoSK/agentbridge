@@ -169,6 +169,38 @@ public class NativeChatPromptRailTest extends NativeMarkdownPaneTestBase {
         assertEquals("the first prompt cannot scroll above the start", 0, viewport.getViewPosition().y);
     }
 
+    /** The newest prompt's target is the bottom the chat already shows, so the chat keeps following the reply. */
+    public void testClickingADotWhoseTargetIsTheBottomKeepsAutoScroll() {
+        NativeChatPanel panel = panelWithManyPrompts();
+        panel.setAutoScroll(true);
+        boolean[] autoScrollDisabled = {false};
+        panel.setOnAutoScrollDisabled(() -> {
+            autoScrollDisabled[0] = true;
+            return Unit.INSTANCE;
+        });
+
+        PromptRail rail = rail(panel);
+        click(rail, dotOf(rail, question(PROMPTS - 1)));
+
+        assertFalse("the view did not move, so nothing would turn auto-scroll back on", autoScrollDisabled[0]);
+    }
+
+    public void testSendingAPromptAfterAJumpWatchesTheWheelAgain() {
+        NativeChatPanel panel = panelWithManyPrompts();
+        JScrollPane scrollPane = (JScrollPane) ((ChatPanelApi) panel).getComponent();
+        panel.setAutoScroll(true);
+        int wheelListeners = scrollPane.getMouseWheelListeners().length;
+        PromptRail rail = rail(panel);
+        click(rail, dotOf(rail, question(0)));
+        assertTrue("precondition: the jump stops watching the wheel",
+            scrollPane.getMouseWheelListeners().length < wheelListeners);
+
+        panel.addPromptEntry("new question", null, null);
+
+        assertEquals("scrolling up with the wheel stops auto-scroll again",
+            wheelListeners, scrollPane.getMouseWheelListeners().length);
+    }
+
     /** Streaming queues scrolls to the bottom; one still queued when the user jumps must not undo the jump. */
     public void testAScrollToBottomQueuedBeforeTheJumpDoesNotUndoIt() {
         NativeChatPanel panel = panelWithManyPrompts();

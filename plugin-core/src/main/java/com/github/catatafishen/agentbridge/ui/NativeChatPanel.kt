@@ -465,25 +465,23 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
         }
     }
 
-    /**
-     * Scrolls so the prompt's row is near the top of the chat. Auto-scroll goes off first, or streaming output
-     * would pull the chat straight back to the bottom; reaching the bottom turns it on again as usual.
-     */
+    /** Scrolls so the prompt's row is near the top of the chat; auto-scroll stays on only if that is the bottom. */
     fun scrollToEntry(entryId: String) {
         val row = promptRail.rowFor(entryId)
         if (row == null || !SwingUtilities.isDescendingFrom(row, bottomAlignedHost)) {
             LOG.warn("Cannot scroll to prompt $entryId: its row is ${if (row == null) "unknown" else "not in the chat"}")
             return
         }
-        if (autoScrollEnabled) {
-            setAutoScroll(false)
-            onAutoScrollDisabled?.invoke()
-        }
         val viewport = scrollPane.viewport
         val rowY = SwingUtilities.convertPoint(row, 0, 0, bottomAlignedHost).y
         val top = PromptRailLayout.scrollTarget(
             rowY, bottomAlignedHost.height, viewport.extentSize.height, JBUI.scale(ROW_SPACING)
         )
+        val atBottom = top >= bottomAlignedHost.height - viewport.extentSize.height
+        if (autoScrollEnabled && !atBottom) {
+            setAutoScroll(false)
+            onAutoScrollDisabled?.invoke()
+        }
         viewport.viewPosition = Point(0, top)
     }
 
@@ -1076,7 +1074,7 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
         // regardless of where the user was scrolled before sending.
         // Guarded against replay, where addPromptEntry is called to restore history.
         if (!isReplaying) {
-            autoScrollEnabled = true
+            setAutoScroll(true)
             onAutoScrollEnabled?.invoke()
         }
         return addPromptEntryAt(text, contextFiles) { row -> addRow(row) }
