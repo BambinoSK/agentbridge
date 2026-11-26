@@ -284,7 +284,7 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
 
     private val contentPanel = JBPanel<JBPanel<*>>(null).apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(8, 10)
+        border = contentBorder(railShown = false)
         background = UIUtil.getPanelBackground()
     }
 
@@ -351,7 +351,20 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
         { userAccent() },
         { entryId -> scrollToEntry(entryId) },
         PropertiesComponent.getInstance(project).getBoolean(PREF_SHOW_PROMPT_RAIL, true)
-    ).also { it.installIn(scrollPane) }
+    ).also { rail ->
+        rail.installIn(scrollPane)
+        fitContentToRail(rail.isVisible)
+        rail.addComponentListener(object : ComponentAdapter() {
+            override fun componentShown(e: ComponentEvent) = fitContentToRail(true)
+            override fun componentHidden(e: ComponentEvent) = fitContentToRail(false)
+        })
+    }
+
+    /** The rail's own width is the chat's right margin while it is shown, so its dots sit midway to the scrollbar. */
+    private fun fitContentToRail(railShown: Boolean) {
+        contentPanel.border = contentBorder(railShown)
+        contentPanel.revalidate()
+    }
 
     override val component: JComponent = scrollPane
 
@@ -2795,6 +2808,12 @@ class NativeChatPanel(private val project: Project) : ChatPanelApi {
 
         /** Project preference behind [subAgentSectionsVisible]. */
         const val PREF_SHOW_SUB_AGENTS = "agentbridge.chat.showSubAgents"
+
+        private const val CONTENT_INSET_V = 8
+        private const val CONTENT_INSET_H = 10
+
+        private fun contentBorder(railShown: Boolean) =
+            JBUI.Borders.empty(CONTENT_INSET_V, CONTENT_INSET_H, CONTENT_INSET_V, if (railShown) 0 else CONTENT_INSET_H)
 
         /** Project preference behind [promptRailEnabled]. */
         const val PREF_SHOW_PROMPT_RAIL = "agentbridge.chat.showPromptRail"

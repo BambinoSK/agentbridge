@@ -79,6 +79,18 @@ public final class PromptRailLayout {
     }
 
     /**
+     * The x of the dots' centers in the rail. A scrollbar drawn over the chat paints its thumb in the middle of its
+     * strip, not at the strip's edge, so the dots are centered between the chat and that middle.
+     *
+     * @param railWidth       the width of the rail, which starts where the chat ends
+     * @param barOverlaysChat whether the scrollbar is drawn over the chat; it then starts where the rail ends
+     * @param barWidth        the width of the scrollbar
+     */
+    public static int dotCenterX(int railWidth, boolean barOverlaysChat, int barWidth) {
+        return barOverlaysChat ? (railWidth + barWidth / 2) / 2 : railWidth / 2;
+    }
+
+    /**
      * The prompt whose turn is being read: the last one that starts above the upper third of the visible area.
      * At the bottom of the chat it is the last prompt in view, so the newest prompt is current even when its
      * short reply leaves it low on screen.

@@ -48,7 +48,8 @@ import java.util.function.Supplier;
  */
 public final class PromptRail extends JComponent {
 
-    private static final int RAIL_WIDTH = 12;
+    /** The rail replaces the chat's right margin, so it is wide enough to keep the dots clear of the chat. */
+    private static final int RAIL_WIDTH = 20;
     private static final int DOT_SIZE = 6;
     private static final int MARKED_DOT_SIZE = 8;
     private static final int INSET = 10;
@@ -192,11 +193,22 @@ public final class PromptRail extends JComponent {
     private void updateReservedSpace() {
         if (!(getParent() instanceof JScrollPane scrollPane)) return;
         JScrollBar bar = scrollPane.getVerticalScrollBar();
+        boolean barOverlaysChat = bar != null && !bar.isOpaque();
         int width = PromptRailLayout.reservedWidth(isVisible(), getPreferredSize().width,
-            bar != null && !bar.isOpaque(), bar == null ? 0 : bar.getPreferredSize().width);
+            barOverlaysChat, bar == null ? 0 : bar.getPreferredSize().width);
         scrollPane.setViewportBorder(width == 0 ? null : JBUI.Borders.emptyRight(width));
+        // The strip already keeps the scrollbar off the chat, so JBViewport must not also inset the chat for it.
+        if (bar != null) {
+            bar.putClientProperty(JBScrollPane.IGNORE_SCROLLBAR_IN_INSETS, width > 0 && barOverlaysChat ? Boolean.TRUE : null);
+        }
         scrollPane.revalidate();
         scrollPane.repaint();
+    }
+
+    /** The x, in the rail, of its dots' centers. */
+    int dotCenterX() {
+        JScrollBar bar = getParent() instanceof JScrollPane scrollPane ? scrollPane.getVerticalScrollBar() : null;
+        return PromptRailLayout.dotCenterX(getWidth(), bar != null && !bar.isOpaque(), bar == null ? 0 : bar.getWidth());
     }
 
     @Override
@@ -212,6 +224,7 @@ public final class PromptRail extends JComponent {
         if (prompts.isEmpty()) return;
         int[] centers = centers(prompts);
         int current = currentIndex(prompts);
+        int dotX = dotCenterX();
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -224,7 +237,7 @@ public final class PromptRail extends JComponent {
                 else color = UIUtil.getContextHelpForeground();
                 int size = JBUI.scale(marked ? MARKED_DOT_SIZE : DOT_SIZE);
                 g2.setColor(color);
-                g2.fillOval((getWidth() - size) / 2, centers[i] - size / 2, size, size);
+                g2.fillOval(dotX - size / 2, centers[i] - size / 2, size, size);
             }
         } finally {
             g2.dispose();

@@ -113,6 +113,41 @@ public class NativeChatPromptRailTest extends NativeMarkdownPaneTestBase {
         assertTrue("turning the rail off gives its space back to the chat", viewport.getWidth() > narrowed);
     }
 
+    /** IntelliJ draws the scrollbar over the chat and insets the chat for it; the rail's strip already moves it off. */
+    public void testTheChatIsNotInsetAgainForAScrollbarDrawnOverIt() {
+        NativeChatPanel panel = panelWithManyPrompts();
+        JScrollPane scrollPane = (JScrollPane) ((ChatPanelApi) panel).getComponent();
+        JScrollBar bar = scrollPane.getVerticalScrollBar();
+        bar.setOpaque(false);
+        panel.setPromptRailEnabled(false);
+        settleLayout(scrollPane);
+        int barInset = ((JComponent) scrollPane.getViewport().getView()).getInsets().right;
+        assertTrue("precondition: without the rail the chat is inset for the scrollbar: " + barInset, barInset > 0);
+
+        panel.setPromptRailEnabled(true);
+        settleLayout(scrollPane);
+
+        assertEquals("the chat ends at the rail", 0, ((JComponent) scrollPane.getViewport().getView()).getInsets().right);
+    }
+
+    public void testTheDotsAreMidwayBetweenThePromptsAndTheScrollbar() {
+        NativeChatPanel panel = panelWithManyPrompts();
+        JScrollPane scrollPane = (JScrollPane) ((ChatPanelApi) panel).getComponent();
+        JScrollBar bar = scrollPane.getVerticalScrollBar();
+        bar.setOpaque(false);
+        panel.setPromptRailEnabled(false);
+        panel.setPromptRailEnabled(true);
+        settleLayout(scrollPane);
+        PromptRail rail = rail(panel);
+        RoundedPanel bubble = bubbleOf(scrollPane, question(PROMPTS - 1));
+
+        int bubbleRight = SwingUtilities.convertPoint(bubble, bubble.getWidth(), 0, scrollPane).x;
+        int dotCenter = rail.getX() + rail.dotCenterX();
+        int barMiddle = bar.getX() + bar.getWidth() / 2;
+        assertTrue("bubble ends at " + bubbleRight + ", dot at " + dotCenter + ", scrollbar middle at " + barMiddle,
+            Math.abs((dotCenter - bubbleRight) - (barMiddle - dotCenter)) <= 2);
+    }
+
     public void testClickingADotScrollsToItsPromptAndStopsAutoScroll() {
         NativeChatPanel panel = panelWithManyPrompts();
         JComponent root = ((ChatPanelApi) panel).getComponent();
@@ -247,6 +282,21 @@ public class NativeChatPromptRailTest extends NativeMarkdownPaneTestBase {
         }
         fail("no bubble shows '" + text + "'");
         return -1;
+    }
+
+    /** The user bubble that shows {@code text}. */
+    private static RoundedPanel bubbleOf(JScrollPane scrollPane, String text) {
+        List<NativeMarkdownPane> panes = new ArrayList<>();
+        collectPanes(scrollPane.getViewport().getView(), panes);
+        for (NativeMarkdownPane pane : panes) {
+            if (text.equals(pane.getRawText())) {
+                RoundedPanel bubble = (RoundedPanel) SwingUtilities.getAncestorOfClass(RoundedPanel.class, pane);
+                assertNotNull("the prompt '" + text + "' is in no bubble", bubble);
+                return bubble;
+            }
+        }
+        fail("no bubble shows '" + text + "'");
+        return null;
     }
 
     private static void collectPanes(Component c, List<NativeMarkdownPane> out) {

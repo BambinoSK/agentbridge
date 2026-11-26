@@ -78,6 +78,17 @@ class PromptRailLayoutTest {
     }
 
     @Test
+    void besideAnOverlayScrollbarDotsAreMidwayToTheScrollbarsMiddle() {
+        assertEquals(13, PromptRailLayout.dotCenterX(20, true, 14),
+            "13 px from the chat, 14 px from the scrollbar's middle at 27");
+    }
+
+    @Test
+    void besideAnOpaqueScrollbarDotsAreInTheRailsMiddle() {
+        assertEquals(10, PromptRailLayout.dotCenterX(20, false, 14));
+    }
+
+    @Test
     void currentPromptIsTheLastOneAboveTheUpperThirdOfTheView() {
         int[] ys = {0, 400, 700, 1200};
 
