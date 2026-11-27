@@ -11,6 +11,7 @@ import com.github.catatafishen.agentbridge.model.ContentBlock
 import com.github.catatafishen.agentbridge.model.SessionUpdate
 import com.github.catatafishen.agentbridge.psi.CodeChangeTracker
 import com.github.catatafishen.agentbridge.psi.PsiBridgeService
+import com.github.catatafishen.agentbridge.session.SessionSettingsRestorer
 import com.github.catatafishen.agentbridge.services.*
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -130,14 +131,14 @@ class PromptOrchestrator(
             // the session state on a not-yet-started client is already empty.
             agentManager.clientIfRunning?.dropCurrentSession()
             finishBackgroundSubAgents(MessageFormatter.ChipStatus.FAILED, BACKGROUND_SESSION_ENDED_NOTE)
-            lastInitialisedSessionId = null
+            sessionSettings.forget()
         }
 
     /**
-     * Tracks the session ID we last applied model + session-option settings to, so we re-run
-     * that one-time setup only when the client hands us a session ID we haven't seen before.
+     * Applies the saved model and session options once per session id, whether the chat reaches the
+     * session after connecting ([restoreSettingsOnConnectedSession]) or at the first prompt.
      */
-    private var lastInitialisedSessionId: String? = null
+    private val sessionSettings = SessionSettingsRestorer()
 
     internal var conversationSummaryInjected: Boolean = false
     private var currentPromptThread: Thread? = null
@@ -444,44 +445,33 @@ class PromptOrchestrator(
         // restart. The orchestrator must NOT maintain its own cached ID alongside the client's,
         // otherwise the two drift apart on restart and the next prompt is sent with a stale ID.
         val sessionId = client.createSession(project.basePath)
-        if (sessionId != lastInitialisedSessionId) {
+        restoreSessionSettings(client, sessionId)
+        return sessionId
+    }
+
+    /**
+     * Applies the saved model and session options to the session the agent already has after
+     * connecting, so the toolbar shows them before the first prompt instead of the agent's defaults.
+     * Runs on a pooled thread, because the agent answers each change over the wire.
+     *
+     * A client without a session yet is left alone: creating one here would run its session setup
+     * early. Claude CLI, for one, consumes the resume id of a session switch in createSession(). The
+     * first prompt applies the settings for such clients, as before.
+     */
+    fun restoreSettingsOnConnectedSession() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val client = agentManager.clientIfRunning ?: return@executeOnPooledThread
+            val sessionId = client.activeSessionId ?: return@executeOnPooledThread
+            restoreSessionSettings(client, sessionId)
+        }
+    }
+
+    private fun restoreSessionSettings(client: AbstractClient, sessionId: String) {
+        sessionSettings.restoreOnce(client, sessionId, SessionSettingsRestorer.Saved.from(agentManager.settings)) {
             // A background sub-agent of an earlier session can no longer report to this chat.
             finishBackgroundSubAgents(MessageFormatter.ChipStatus.FAILED, BACKGROUND_SESSION_ENDED_NOTE)
-            lastInitialisedSessionId = sessionId
             callbacks.updateSessionInfo()
-            val savedModel = agentManager.settings.selectedModel
-            if (!savedModel.isNullOrEmpty()) {
-                val availableModels = try {
-                    client.availableModels
-                } catch (ex: Exception) {
-                    log.warn(
-                        "Failed to retrieve available models for model validation — skipping setModel validation",
-                        ex
-                    )
-                    emptyList()
-                }
-                if (availableModels.isEmpty() || availableModels.any { it.id() == savedModel }) {
-                    try {
-                        client.setModel(sessionId, savedModel)
-                    } catch (ex: Exception) {
-                        log.warn("Failed to set model $savedModel on new session", ex)
-                    }
-                } else {
-                    log.warn("Saved model '$savedModel' is not in the available models list — skipping setModel to avoid empty turn")
-                }
-            }
-            for (option in client.listSessionOptions()) {
-                val savedValue = agentManager.settings.getSessionOptionValue(option.key)
-                if (savedValue.isNotEmpty()) {
-                    try {
-                        client.setSessionOption(sessionId, option.key, savedValue)
-                    } catch (ex: Exception) {
-                        log.warn("Failed to restore session option ${option.key}=$savedValue", ex)
-                    }
-                }
-            }
         }
-        return sessionId
     }
 
     private fun wirePermissionListener(client: AbstractClient) {
@@ -1392,11 +1382,10 @@ class PromptOrchestrator(
         }
 
         if (c.isAuthError) {
-            log.info("Authentication error detected: ${c.displayMessage}")
+            log.info("Authentication error detected: ${c.displayMessage}", e)
             authService.markAuthError(c.displayMessage)
             copilotBanner()?.triggerCheck()
             consolePanel().addErrorEntry("Error: ${c.displayMessage}")
-            e.printStackTrace()
             return
         }
 
@@ -1405,7 +1394,7 @@ class PromptOrchestrator(
                 log.info("Agent process crashed but recovered — preserving session ...")
             } else {
                 agentManager.client.dropCurrentSession()
-                lastInitialisedSessionId = null
+                sessionSettings.forget()
                 // Fresh agent session next prompt: stop diffing cost against the dropped
                 // session's cumulative total.
                 resetCumulativeCostTracking()

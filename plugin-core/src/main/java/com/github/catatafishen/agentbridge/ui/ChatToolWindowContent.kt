@@ -379,11 +379,7 @@ class ChatToolWindowContent(
             // Show "Connecting…" state and trigger auto-connect flow
             connectPanel.showConnecting()
             modelSelector.loadModelsAsync(
-                onSuccess = { models ->
-                    buildAndShowChatPanel()
-                    modelSelector.restoreModelSelection(models)
-                    statusBanner?.showInfo("Connected to ${agentManager.activeProfile.displayName}")
-                },
+                onSuccess = { showConnectedChat("Connected to ${agentManager.activeProfile.displayName}") },
                 onFailure = { error ->
                     connectPanel.showError(error.message ?: "Auto-connect failed")
                 }
@@ -475,10 +471,8 @@ class ChatToolWindowContent(
         // Stay on connect panel while spinner shows "Connecting…"
         // loadModelsAsync triggers agent.start() via getClient() — wait for it to complete
         modelSelector.loadModelsAsync(
-            onSuccess = { models ->
-                buildAndShowChatPanel(freshSession)
-                modelSelector.restoreModelSelection(models)
-                statusBanner?.showInfo("Connected to ${agentManager.activeProfile.displayName}")
+            onSuccess = {
+                showConnectedChat("Connected to ${agentManager.activeProfile.displayName}", freshSession)
             },
             onFailure = { error ->
                 connectPanel.showError(error.message ?: "Connection failed")
@@ -490,6 +484,17 @@ class ChatToolWindowContent(
                 )
             }
         )
+    }
+
+    /**
+     * Shows the chat once the agent has connected and its models are loaded. The model dropdown is
+     * already restored by then ([ModelSelectorService.loadModelsAsync]). The saved model and session
+     * options are sent to the agent's session now, so the toolbar shows them before the first prompt.
+     */
+    private fun showConnectedChat(status: String, freshSession: Boolean = false) {
+        buildAndShowChatPanel(freshSession)
+        if (::promptOrchestrator.isInitialized) promptOrchestrator.restoreSettingsOnConnectedSession()
+        statusBanner?.showInfo(status)
     }
 
     private fun promptPlaceholder(): String {
@@ -2637,11 +2642,7 @@ class ChatToolWindowContent(
         resetSessionState()
         updateSessionInfo()
         modelSelector.loadModelsAsync(
-            onSuccess = { models ->
-                buildAndShowChatPanel()
-                modelSelector.restoreModelSelection(models)
-                statusBanner?.showInfo("Switched to agent: $slug")
-            },
+            onSuccess = { showConnectedChat("Switched to agent: $slug") },
             onFailure = { error ->
                 statusBanner?.showError(error.message ?: "Failed to restart with agent $slug")
             }
