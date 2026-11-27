@@ -2,6 +2,7 @@ package com.github.catatafishen.agentbridge.psi.tools;
 
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
 import com.github.catatafishen.agentbridge.psi.PsiBridgeService;
+import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.services.AgentTabTracker;
 import com.intellij.execution.RunContentExecutor;
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -30,6 +31,8 @@ import java.util.concurrent.TimeoutException;
  * <p>The chat-focus heuristic (don't steal keyboard focus when the chat window is active)
  * is applied consistently in both callers because the check is performed inside
  * {@link EdtUtil#invokeLater}, at the moment the Run panel tab is actually created.
+ * The user can also turn raising the Run window off altogether
+ * ({@link ToolLayerSettings#getRaiseRunWindow()}).
  */
 public final class RunPanelExecutor {
 
@@ -104,6 +107,7 @@ public final class RunPanelExecutor {
         // which requires EOF on both stdout and stderr. A stuck reader prevents this.
         scheduleProcessExitFallback(process, exitFuture);
 
+        boolean raiseAllowed = ToolLayerSettings.getInstance(project).getRaiseRunWindow();
         EdtUtil.invokeLater(() -> {
             try {
                 // Evaluate chat-active state here on the EDT, not before invokeLater, to avoid
@@ -116,11 +120,11 @@ public final class RunPanelExecutor {
                 // Even with activateToolWindow=false, setAutoFocusContent(true) still steals
                 // keyboard focus into the new console tab when it is added to an already-visible
                 // Run window. Both must be gated together to keep focus on the chat prompt.
-                boolean chatActive = PsiBridgeService.isChatToolWindowActive(project);
+                boolean raise = shouldRaiseRunWindow(raiseAllowed, PsiBridgeService.isChatToolWindowActive(project));
                 new RunContentExecutor(project, processHandler)
                     .withTitle(title)
-                    .withActivateToolWindow(!chatActive)
-                    .withFocusToolWindow(!chatActive)
+                    .withActivateToolWindow(raise)
+                    .withFocusToolWindow(raise)
                     .run();
             } catch (Exception e) {
                 // RunContentExecutor.run() may have already called startNotify() before
@@ -174,6 +178,15 @@ public final class RunPanelExecutor {
                                              @NotNull String title,
                                              int timeoutSec) throws Exception {
         return execute(project, cmd.createProcess(), cmd.getCommandLineString(), title, timeoutSec);
+    }
+
+    /**
+     * Whether a new Run tab should bring the Run tool window forward (activate it and focus the tab).
+     * Never when the user turned that off ({@link ToolLayerSettings#getRaiseRunWindow()}), and never
+     * while the chat has focus, so typing in the prompt is not interrupted.
+     */
+    static boolean shouldRaiseRunWindow(boolean raiseAllowed, boolean chatActive) {
+        return raiseAllowed && !chatActive;
     }
 
     static void scheduleProcessExitFallback(Process process, CompletableFuture<Integer> exitFuture) {
