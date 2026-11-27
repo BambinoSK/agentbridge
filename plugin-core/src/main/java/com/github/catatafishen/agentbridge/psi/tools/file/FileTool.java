@@ -2,6 +2,7 @@ package com.github.catatafishen.agentbridge.psi.tools.file;
 
 import com.github.catatafishen.agentbridge.attribution.PromptAttributionService;
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.PsiBridgeService;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.psi.ToolUtils;
@@ -740,13 +741,15 @@ public abstract class FileTool extends Tool {
     }
 
     /**
-     * Opens the file in the editor if "Follow Agent Files" is enabled.
+     * Opens the file in the editor if "Follow Agent Files" is enabled for this kind of operation.
      * Scrolls to the middle of [startLine, endLine] and briefly highlights the region.
+     * {@link #HIGHLIGHT_READ} marks a read; any other colour (callers pass {@link #HIGHLIGHT_EDIT})
+     * marks an edit, which is what decides whether the Follow Agent scope includes it.
      */
     public static void followFileIfEnabled(Project project, String pathStr, int startLine, int endLine,
                                            Color highlightColor, String actionLabel) {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
-            LOG.debug("followFileIfEnabled skipped: setting disabled for project " + project.getName());
+        if (!ToolLayerSettings.getInstance(project).followsFiles(operationOf(highlightColor))) {
+            LOG.debug("followFileIfEnabled skipped: Follow Agent off or out of scope for project " + project.getName());
             return;
         }
 
@@ -793,6 +796,11 @@ public abstract class FileTool extends Tool {
                 nav.set(false);
             }
         });
+    }
+
+    /** The Follow Agent operation a follow highlight stands for: {@link #HIGHLIGHT_READ} is a read, anything else an edit. */
+    static FollowAgentScope.Operation operationOf(Color highlightColor) {
+        return HIGHLIGHT_READ.equals(highlightColor) ? FollowAgentScope.Operation.READ : FollowAgentScope.Operation.EDIT;
     }
 
     /**

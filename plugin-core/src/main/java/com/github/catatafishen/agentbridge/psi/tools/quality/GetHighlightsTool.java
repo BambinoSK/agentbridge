@@ -1,6 +1,7 @@
 package com.github.catatafishen.agentbridge.psi.tools.quality;
 
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.settings.DiagnosticFilterSettings;
@@ -231,7 +232,7 @@ public final class GetHighlightsTool extends QualityTool {
 
         ToolLayerSettings settings = ToolLayerSettings.getInstance(project);
         boolean computedOnDemand = query.analyzed() != null;
-        if (!computedOnDemand && !settings.getFollowAgentFiles() && !settings.getAllowTransientFileOpens()) {
+        if (!computedOnDemand && !settings.followsFiles(FollowAgentScope.Operation.READ) && !settings.getAllowTransientFileOpens()) {
             result.append("""
 
 

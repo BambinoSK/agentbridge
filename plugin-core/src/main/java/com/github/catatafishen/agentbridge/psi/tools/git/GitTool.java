@@ -613,7 +613,7 @@ public abstract class GitTool extends Tool {
      * @param repoRoot absolute path of the repository the commit was made in
      */
     protected void showNewCommitInLog(@NotNull String repoRoot) {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) return;
+        if (!ToolLayerSettings.getInstance(project).followsToolWindows()) return;
 
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
@@ -656,7 +656,7 @@ public abstract class GitTool extends Tool {
      *                 routes the navigation to the correct repo in multi-repo projects
      */
     protected void showFirstCommitInLog(@NotNull String repoRoot, String gitOutput) {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) return;
+        if (!ToolLayerSettings.getInstance(project).followsToolWindows()) return;
         if (gitOutput == null || gitOutput.isEmpty()) return;
         String hash = extractFirstCommitHash(gitOutput);
         if (hash == null) return;

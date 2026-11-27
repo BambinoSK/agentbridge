@@ -97,7 +97,7 @@ public final class BuildProjectTool extends ProjectTool {
      * In follow mode, shows the Build tool window without stealing focus from the chat prompt.
      */
     private void showBuildWindowIfFollowing() {
-        if (!com.github.catatafishen.agentbridge.psi.ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (!com.github.catatafishen.agentbridge.psi.ToolLayerSettings.getInstance(project).followsToolWindows()) {
             return;
         }
         com.github.catatafishen.agentbridge.psi.EdtUtil.invokeLater(() -> {

@@ -1278,7 +1278,8 @@ public final class PsiBridgeService implements Disposable {
                 com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).isFileOpen(vf));
 
         ToolLayerSettings settings = ToolLayerSettings.getInstance(project);
-        boolean followAgent = settings.getFollowAgentFiles();
+        // A write is an edit: with Follow Agent scoped to reads, the file is handled as if it were off.
+        boolean followAgent = settings.followsFiles(FollowAgentScope.Operation.EDIT);
         boolean allowTransient = settings.getAllowTransientFileOpens();
 
         if (!wasAlreadyOpen && !followAgent && !allowTransient) {
@@ -1306,7 +1307,7 @@ public final class PsiBridgeService implements Disposable {
         } finally {
             // Close the file if we transiently opened it for daemon analysis.
             // Condition: file was not open before (we may have opened it via resolveActiveWaiter)
-            //            AND Follow Agent Files is off (when on, the file should remain open).
+            //            AND Follow Agent does not follow edits (when it does, the file should remain open).
             // When the early-return above fires (both settings off), this is a no-op because
             // resolveActiveWaiter was never called, so no file was opened.
             if (!wasAlreadyOpen && vf != null && !followAgent) {

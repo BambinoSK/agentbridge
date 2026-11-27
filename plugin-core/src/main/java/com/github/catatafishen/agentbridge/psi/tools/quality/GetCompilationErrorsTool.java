@@ -1,6 +1,7 @@
 package com.github.catatafishen.agentbridge.psi.tools.quality;
 
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.google.gson.JsonObject;
@@ -170,7 +171,7 @@ public final class GetCompilationErrorsTool extends QualityTool {
 
         ToolLayerSettings settings = ToolLayerSettings.getInstance(project);
         AnalysisOpenState openState = new AnalysisOpenState(
-            settings.getFollowAgentFiles(), settings.getAllowTransientFileOpens());
+            settings.followsFiles(FollowAgentScope.Operation.READ), settings.getAllowTransientFileOpens());
         try {
             return refreshErrorAnalysis(files, explicitFile, daemonFinished, openState);
         } finally {

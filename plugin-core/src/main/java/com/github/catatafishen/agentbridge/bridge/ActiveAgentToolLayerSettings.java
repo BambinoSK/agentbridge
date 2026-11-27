@@ -1,5 +1,6 @@
 package com.github.catatafishen.agentbridge.bridge;
 
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.services.ActiveAgentManager;
 import com.github.catatafishen.agentbridge.services.AgentUiSettings;
@@ -33,6 +34,16 @@ public final class ActiveAgentToolLayerSettings implements ToolLayerSettings {
     @Override
     public boolean getAllowTransientFileOpens() {
         return ActiveAgentManager.getAllowTransientFileOpens(project);
+    }
+
+    @Override
+    public @NotNull FollowAgentScope getFollowAgentScope() {
+        return ActiveAgentManager.getFollowAgentScope(project);
+    }
+
+    @Override
+    public boolean getFollowAgentToolWindows() {
+        return ActiveAgentManager.getFollowAgentToolWindows(project);
     }
 
     @Override

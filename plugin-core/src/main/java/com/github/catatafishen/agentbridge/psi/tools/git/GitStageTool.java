@@ -130,7 +130,7 @@ public final class GitStageTool extends GitTool {
      * to resolve the correct tool window ID regardless of commit UI mode.
      */
     private void refreshAndActivateCommitPanel() {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (!ToolLayerSettings.getInstance(project).followsToolWindows()) {
             return;
         }
         ChangesViewManager.getInstance(project).scheduleRefresh();

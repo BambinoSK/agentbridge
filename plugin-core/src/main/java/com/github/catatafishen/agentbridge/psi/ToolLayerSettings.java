@@ -27,6 +27,11 @@ public interface ToolLayerSettings {
 
     String RAISE_RUN_WINDOW_KEY = "agent.raiseRunWindow";
 
+    /** Stores the {@link FollowAgentScope} constant's name. */
+    String FOLLOW_AGENT_SCOPE_KEY = "agent.followAgentScope";
+
+    String FOLLOW_AGENT_TOOL_WINDOWS_KEY = "agent.followAgentToolWindows";
+
     @NotNull
     static ToolLayerSettings getInstance(@NotNull Project project) {
         ToolLayerSettings service = (ToolLayerSettings) PlatformApiCompat.getServiceByRawClass(project, ToolLayerSettings.class);
@@ -40,6 +45,37 @@ public interface ToolLayerSettings {
      * Whether to auto-navigate to files as the agent reads or edits them.
      */
     boolean getFollowAgentFiles();
+
+    /**
+     * Which file operations Follow Agent opens in the editor. Only has effect when
+     * {@link #getFollowAgentFiles()} returns {@code true}. Defaults to reads and edits.
+     */
+    default @NotNull FollowAgentScope getFollowAgentScope() {
+        return FollowAgentScope.READS_AND_EDITS;
+    }
+
+    /**
+     * Whether Follow Agent also brings up the tool windows that show a tool's result (build output,
+     * the git log at a new commit, the commit view, the database view, chat history search). Only
+     * has effect when {@link #getFollowAgentFiles()} returns {@code true}. Defaults to {@code true}.
+     */
+    default boolean getFollowAgentToolWindows() {
+        return true;
+    }
+
+    /**
+     * Whether Follow Agent opens, and leaves open, the files of {@code operation}: Follow Agent is
+     * on and its scope includes the operation. Callers that keep or close a file use this instead of
+     * {@link #getFollowAgentFiles()}.
+     */
+    default boolean followsFiles(@NotNull FollowAgentScope.Operation operation) {
+        return getFollowAgentFiles() && getFollowAgentScope().includes(operation);
+    }
+
+    /** Whether Follow Agent brings up result tool windows: it is on and the tool-window option is too. */
+    default boolean followsToolWindows() {
+        return getFollowAgentFiles() && getFollowAgentToolWindows();
+    }
 
     /**
      * Whether tools are allowed to temporarily open files in the editor to collect

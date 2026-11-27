@@ -246,7 +246,7 @@ public class ProjectBuildSupport {
      * so the Build tool window doesn't steal keyboard focus from the user.
      */
     private static void restoreFocusIfNeeded(Project project, com.intellij.openapi.fileEditor.FileEditor previousEditor) {
-        if (ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (ToolLayerSettings.getInstance(project).followsToolWindows()) {
             return;
         }
         if (previousEditor == null || previousEditor.getFile() == null) return;

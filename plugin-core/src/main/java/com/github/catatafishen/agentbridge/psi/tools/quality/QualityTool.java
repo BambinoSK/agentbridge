@@ -1,5 +1,6 @@
 package com.github.catatafishen.agentbridge.psi.tools.quality;
 
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.psi.ToolUtils;
 import com.github.catatafishen.agentbridge.psi.tools.Tool;
@@ -288,15 +289,24 @@ public abstract class QualityTool extends Tool {
      * {@code get_action_options}) require a live {@link Editor} to position a caret and evaluate
      * intention availability — there is no headless alternative in the IntelliJ platform. Without
      * this release step, every tool call on a closed file permanently adds a new editor tab,
-     * ignoring the "Follow Agent Files" preference.
+     * ignoring the "Follow Agent Files" preference. The Follow Agent scope applies through
+     * {@link #fileOperation()}: a file is kept open only when the scope includes that operation.
      *
      * <p>Must be called on the EDT (same thread that called {@link #openEditorForTool}).
      */
     protected void releaseToolEditor(@Nullable ToolEditor te) {
         if (te == null || te.wasAlreadyOpen()) return;
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (!ToolLayerSettings.getInstance(project).followsFiles(fileOperation())) {
             FileEditorManager.getInstance(project).closeFile(te.file());
         }
+    }
+
+    /**
+     * What this tool does to the files it opens, for the Follow Agent scope: most quality tools only
+     * read them (analysis, available actions); a tool that changes the file overrides this.
+     */
+    protected @NotNull FollowAgentScope.Operation fileOperation() {
+        return FollowAgentScope.Operation.READ;
     }
 
     /**
@@ -307,7 +317,7 @@ public abstract class QualityTool extends Tool {
     @Nullable
     protected String checkEditorAccess(@NotNull VirtualFile vf) {
         if (FileEditorManager.getInstance(project).isFileOpen(vf)) return null;
-        if (ToolLayerSettings.getInstance(project).getFollowAgentFiles()) return null;
+        if (ToolLayerSettings.getInstance(project).followsFiles(fileOperation())) return null;
         if (ToolLayerSettings.getInstance(project).getAllowTransientFileOpens()) return null;
         return "Error: This tool needs to temporarily open the file in the IDE editor to collect " +
             "code analysis data, but this is disabled when Follow Agent Files is off. " +

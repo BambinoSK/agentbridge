@@ -1,5 +1,6 @@
 package com.github.catatafishen.agentbridge.settings
 
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat
 import com.github.catatafishen.agentbridge.services.ActiveAgentManager
 import com.github.catatafishen.agentbridge.services.CleanupSettings
@@ -8,6 +9,7 @@ import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.*
@@ -100,8 +102,9 @@ class ChatInputConfigurable(private val project: Project) :
                 .bindItem({ s.fileSearchTrigger }, { s.fileSearchTrigger = it ?: "#" })
         }
         separator()
+        lateinit var followAgent: Cell<JBCheckBox>
         row {
-            checkBox(
+            followAgent = checkBox(
                 "Follow Agent — open files and highlight regions as the agent reads or edits them"
             )
                 .comment(
@@ -114,6 +117,31 @@ class ChatInputConfigurable(private val project: Project) :
                 )
         }
         indent {
+            row("Open files for:") {
+                comboBox(FollowAgentScope.entries.toList(), SimpleListCellRenderer.create("") { it.displayName() })
+                    .comment(
+                        "Which of the agent's file operations open the file in the editor and leave it open. " +
+                            "A file the agent only needs for the other kind is opened briefly (if allowed below) " +
+                            "and closed again, as when Follow Agent is off."
+                    )
+                    .bindItem(
+                        { ActiveAgentManager.getFollowAgentScope(project) },
+                        { ActiveAgentManager.setFollowAgentScope(project, it ?: FollowAgentScope.READS_AND_EDITS) }
+                    )
+                    .enabledIf(followAgent.selected)
+            }
+            row {
+                checkBox("Show result tool windows")
+                    .comment(
+                        "Bring up the build output, the git log at a new commit, the commit view, the database " +
+                            "view and the chat history search when a tool's result is shown there."
+                    )
+                    .bindSelected(
+                        { ActiveAgentManager.getFollowAgentToolWindows(project) },
+                        { ActiveAgentManager.setFollowAgentToolWindows(project, it) }
+                    )
+                    .enabledIf(followAgent.selected)
+            }
             row {
                 checkBox("Open files temporarily for code quality data")
                     .comment(

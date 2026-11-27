@@ -1,6 +1,7 @@
 package com.github.catatafishen.agentbridge.psi.tools.navigation;
 
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.psi.ToolUtils;
@@ -133,7 +134,7 @@ public abstract class NavigationTool extends Tool {
     }
 
     protected void showSearchFeedback(String message) {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) return;
+        if (!ToolLayerSettings.getInstance(project).followsFiles(FollowAgentScope.Operation.READ)) return;
         EdtUtil.invokeLater(() -> PlatformApiCompat.showStatusBarInfo(project, message));
     }
 

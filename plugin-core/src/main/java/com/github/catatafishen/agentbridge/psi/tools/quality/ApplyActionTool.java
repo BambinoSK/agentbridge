@@ -1,6 +1,7 @@
 package com.github.catatafishen.agentbridge.psi.tools.quality;
 
 import com.github.catatafishen.agentbridge.psi.EdtUtil;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat;
 import com.github.catatafishen.agentbridge.psi.ToolUtils;
 import com.github.catatafishen.agentbridge.psi.tools.file.FileTool;
@@ -61,6 +62,12 @@ public final class ApplyActionTool extends QualityTool implements Replayable {
     @Override
     public boolean requiresInteractiveEdt() {
         return true;
+    }
+
+    /** Applying an action changes the file, so it is an edit for the Follow Agent scope. */
+    @Override
+    protected @NotNull FollowAgentScope.Operation fileOperation() {
+        return FollowAgentScope.Operation.EDIT;
     }
 
     @Override

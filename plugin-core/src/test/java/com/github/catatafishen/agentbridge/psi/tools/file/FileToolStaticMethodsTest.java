@@ -1,5 +1,6 @@
 package com.github.catatafishen.agentbridge.psi.tools.file;
 
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -142,6 +143,20 @@ class FileToolStaticMethodsTest {
         @Test
         void emptyModelNullAgent() {
             assertEquals("Agent", FileTool.resolveLabel(null, ""));
+        }
+    }
+
+    @Nested
+    class OperationOf {
+
+        @Test
+        void readHighlightIsARead() {
+            assertEquals(FollowAgentScope.Operation.READ, FileTool.operationOf(FileTool.HIGHLIGHT_READ));
+        }
+
+        @Test
+        void editHighlightIsAnEdit() {
+            assertEquals(FollowAgentScope.Operation.EDIT, FileTool.operationOf(FileTool.HIGHLIGHT_EDIT));
         }
     }
 }

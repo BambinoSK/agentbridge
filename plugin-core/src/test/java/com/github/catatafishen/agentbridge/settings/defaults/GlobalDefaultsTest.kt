@@ -526,6 +526,12 @@ class GlobalDefaultsTest {
         }
 
         @Test
+        fun `the Follow Agent scope and tool-window choices are copied under the keys the tool layer reads`() {
+            assertTrue(ToolLayerSettings.FOLLOW_AGENT_SCOPE_KEY in ActiveAgentManager.USER_CHOICE_KEYS)
+            assertTrue(ToolLayerSettings.FOLLOW_AGENT_TOOL_WINDOWS_KEY in ActiveAgentManager.USER_CHOICE_KEYS)
+        }
+
+        @Test
         fun `an agent's copied keys are its model, mode, effort and limits, not its resume id or billing counters`() {
             val keys = GenericSettings.userChoiceKeys("claude-cli")
 

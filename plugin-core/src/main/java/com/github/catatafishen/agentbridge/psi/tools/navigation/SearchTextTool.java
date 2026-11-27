@@ -1,7 +1,8 @@
 package com.github.catatafishen.agentbridge.psi.tools.navigation;
 
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
+import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.psi.ToolUtils;
-import com.github.catatafishen.agentbridge.services.ActiveAgentManager;
 import com.github.catatafishen.agentbridge.services.AgentTabTracker;
 import com.github.catatafishen.agentbridge.ui.renderers.SearchResultRenderer;
 import com.google.gson.JsonObject;
@@ -134,7 +135,7 @@ public final class SearchTextTool extends NavigationTool {
         int contextLines = args.has(PARAM_CONTEXT_LINES) ? args.get(PARAM_CONTEXT_LINES).getAsInt() : 0;
         String pagingError = checkPaging(maxResults, offset);
         if (pagingError != null) return pagingError;
-        boolean followAgent = ActiveAgentManager.getFollowAgentFiles(project);
+        boolean followAgent = ToolLayerSettings.getInstance(project).followsFiles(FollowAgentScope.Operation.READ);
         FileCategory.Selection scope = FileCategory.parseScope(args);
         if (scope.error() != null) return scope.error();
         if (!scope.includesProject()) {

@@ -200,7 +200,7 @@ public final class QueryTurnsTool extends EditorTool {
         List<ConversationQuery.TurnSummary> turns = store.query(params);
         if (turns.isEmpty()) return "No turns found matching the given parameters.";
 
-        if (ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (ToolLayerSettings.getInstance(project).followsToolWindows()) {
             PromptDbService.getInstance(project).navigateToSearch(params);
         }
 

@@ -33,7 +33,7 @@ public abstract class DatabaseTool extends Tool {
      * Activates the Database tool window when follow-agent mode is enabled.
      */
     protected void activateDatabaseToolWindow() {
-        if (!ToolLayerSettings.getInstance(project).getFollowAgentFiles()) {
+        if (!ToolLayerSettings.getInstance(project).followsToolWindows()) {
             return;
         }
         EdtUtil.invokeLater(() -> {

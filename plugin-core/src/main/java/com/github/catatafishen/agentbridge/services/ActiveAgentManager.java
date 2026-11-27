@@ -6,6 +6,8 @@ import com.github.catatafishen.agentbridge.client.AbstractClient;
 import com.github.catatafishen.agentbridge.client.ClientRegistry;
 import com.github.catatafishen.agentbridge.client.claude.ClaudeClient;
 import com.github.catatafishen.agentbridge.client.codex.CodexClient;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope;
+import com.github.catatafishen.agentbridge.psi.FollowAgentScopeSetting;
 import com.github.catatafishen.agentbridge.psi.PlatformApiCompat;
 import com.github.catatafishen.agentbridge.psi.ToolLayerSettings;
 import com.github.catatafishen.agentbridge.session.SessionSwitchService;
@@ -43,6 +45,8 @@ public final class ActiveAgentManager implements Disposable {
     private static final String KEY_ALLOW_TRANSIENT_FILE_OPENS = "agent.allowTransientFileOpens";
     private static final String KEY_EDIT_APPROVAL_AUTO_DIFF = "agent.editApprovalAutoDiff";
     private static final String KEY_RAISE_RUN_WINDOW = ToolLayerSettings.RAISE_RUN_WINDOW_KEY;
+    private static final String KEY_FOLLOW_AGENT_SCOPE = ToolLayerSettings.FOLLOW_AGENT_SCOPE_KEY;
+    private static final String KEY_FOLLOW_AGENT_TOOL_WINDOWS = ToolLayerSettings.FOLLOW_AGENT_TOOL_WINDOWS_KEY;
     private static final String KEY_INJECT_CONV_HISTORY = "agent.injectConversationHistory";
     private static final String KEY_AUTO_CONNECT = "agent.autoConnect";
     private static final String KEY_CUSTOM_ACP_COMMAND = "agent.customAcpCommand";
@@ -262,6 +266,8 @@ public final class ActiveAgentManager implements Disposable {
     public static final List<String> USER_CHOICE_KEYS = List.of(
         KEY_ACTIVE_PROFILE,
         KEY_FOLLOW_AGENT_FILES,
+        KEY_FOLLOW_AGENT_SCOPE,
+        KEY_FOLLOW_AGENT_TOOL_WINDOWS,
         KEY_ALLOW_TRANSIENT_FILE_OPENS,
         KEY_EDIT_APPROVAL_AUTO_DIFF,
         KEY_RAISE_RUN_WINDOW,
@@ -624,6 +630,24 @@ public final class ActiveAgentManager implements Disposable {
 
     public static void setFollowAgentFiles(@NotNull Project project, boolean enabled) {
         PropertiesComponent.getInstance(project).setValue(KEY_FOLLOW_AGENT_FILES, enabled, true);
+    }
+
+    /** Which file operations Follow Agent opens in the editor. Default: reads and edits. */
+    public static @NotNull FollowAgentScope getFollowAgentScope(@NotNull Project project) {
+        return FollowAgentScopeSetting.read(PropertiesComponent.getInstance(project));
+    }
+
+    public static void setFollowAgentScope(@NotNull Project project, @NotNull FollowAgentScope scope) {
+        FollowAgentScopeSetting.write(PropertiesComponent.getInstance(project), scope);
+    }
+
+    /** Whether Follow Agent also brings up result tool windows (build, git log, commit, database). Default {@code true}. */
+    public static boolean getFollowAgentToolWindows(@NotNull Project project) {
+        return PropertiesComponent.getInstance(project).getBoolean(KEY_FOLLOW_AGENT_TOOL_WINDOWS, true);
+    }
+
+    public static void setFollowAgentToolWindows(@NotNull Project project, boolean enabled) {
+        PropertiesComponent.getInstance(project).setValue(KEY_FOLLOW_AGENT_TOOL_WINDOWS, enabled, true);
     }
 
     public static boolean getAllowTransientFileOpens(@NotNull Project project) {

@@ -38,6 +38,19 @@ public final class DefaultToolLayerSettings implements ToolLayerSettings {
     }
 
     @Override
+    public @NotNull FollowAgentScope getFollowAgentScope() {
+        if (project == null) return FollowAgentScope.READS_AND_EDITS;
+        return FollowAgentScopeSetting.read(PropertiesComponent.getInstance(project));
+    }
+
+    @Override
+    public boolean getFollowAgentToolWindows() {
+        if (project == null) return true;
+        return PropertiesComponent.getInstance(project)
+            .getBoolean(FOLLOW_AGENT_TOOL_WINDOWS_KEY, true);
+    }
+
+    @Override
     public boolean getRaiseRunWindow() {
         if (project == null) return true;
         return PropertiesComponent.getInstance(project)

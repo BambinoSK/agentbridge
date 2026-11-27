@@ -10,7 +10,9 @@ import com.github.catatafishen.agentbridge.client.acp.CopilotClient
 import com.github.catatafishen.agentbridge.model.ContentBlock
 import com.github.catatafishen.agentbridge.model.SessionUpdate
 import com.github.catatafishen.agentbridge.psi.CodeChangeTracker
+import com.github.catatafishen.agentbridge.psi.FollowAgentScope
 import com.github.catatafishen.agentbridge.psi.PsiBridgeService
+import com.github.catatafishen.agentbridge.psi.ToolLayerSettings
 import com.github.catatafishen.agentbridge.services.*
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -1138,7 +1140,8 @@ class PromptOrchestrator(
 
         // Automatic file navigation for "follow agent" feature.
         // We trigger it here when the tool call starts so the UI responds immediately.
-        if (ActiveAgentManager.getFollowAgentFiles(project) && toolCall.filePaths().isNotEmpty()) {
+        val followed = ToolLayerSettings.getInstance(project).followsFiles(FollowAgentScope.Operation.ofAcpKind(kind))
+        if (followed && toolCall.filePaths().isNotEmpty()) {
             ApplicationManager.getApplication().invokeLater {
                 FileNavigator(project).handleFileLink(toolCall.filePaths()[0])
             }
